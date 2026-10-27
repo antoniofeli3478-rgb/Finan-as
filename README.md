@@ -2,7 +2,7 @@
 
 App financeiro pessoal feito para renda variável e para quem está começando a empreender. Os negócios têm apps próprios, ligados ao Finanças (hoje: **Plaquinhas NFC**). Funciona no computador e no celular, **offline**, e guarda tudo **só no seu aparelho**.
 
-- **No celular (pronto para usar):** https://antoniofeli3478-rgb.github.io/financas/ → no Chrome, ⋮ → **Instalar app**.
+- **No celular (pronto para usar):** https://antoniofeli3478-rgb.github.io/Finan-as/ → no Chrome, ⋮ → **Instalar app**.
 - **No computador:** veja "Rodar no computador" abaixo, ou abra o mesmo endereço e instale pelo Chrome/Edge.
 
 ## O que ele faz
@@ -23,7 +23,7 @@ App financeiro pessoal feito para renda variável e para quem está começando a
 Precisa do [Node.js](https://nodejs.org) 20 ou mais novo.
 
 ```bash
-cd financas
+cd Finan-as
 npm install          # 1. instala as dependências (uma vez)
 npm run dev          # 2. abre em http://localhost:5173 (modo de desenvolvimento)
 npm test             # roda os 58 testes dos cálculos, do banco e do backup
