@@ -22,7 +22,9 @@ export default defineConfig({
         lang: "pt-BR",
         start_url: "./",
         scope: "./",
-        id: "./",
+        // Identidade do app no Android. Mudou de "./" para "financas-app" porque uma instalação
+        // antiga ficou pela metade no celular ("app já instalado" / "não foi possível encontrar o app").
+        id: "financas-app",
         display: "standalone",
         orientation: "portrait",
         background_color: "#0f1217",
