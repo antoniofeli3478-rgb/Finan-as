@@ -22,7 +22,7 @@ export function Visao({ abrirAssistente }: { abrirAssistente: () => void }) {
   const L = sit.livreReal;
   const det = sit.livreDetalhe;
   const passosSetup = Object.values(d.config.setup).filter(Boolean).length;
-  const setupIncompleto = modo === "real" && !d.config.setupDispensado && passosSetup < 8;
+  const setupIncompleto = modo === "real" && !d.config.setupDispensado && passosSetup < 7;
 
   const executar = (a: Acao) => {
     if (a.tipo === "distribuir") return ac.distribuir();
@@ -48,7 +48,7 @@ export function Visao({ abrirAssistente }: { abrirAssistente: () => void }) {
 
       {setupIncompleto && (
         <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
-          <div><div className="font-semibold">Configure o app com a sua realidade</div><div className="text-[13.5px] text-muted">{passosSetup} de 8 passos feitos. Dá para parar e continuar depois.</div></div>
+          <div><div className="font-semibold">Configure o app com a sua realidade</div><div className="text-[13.5px] text-muted">{Math.min(7, passosSetup)} de 7 passos feitos. Dá para parar e continuar depois.</div></div>
           <Button tamanho="sm" onClick={abrirAssistente}>Continuar configuração</Button>
         </Card>
       )}
@@ -80,7 +80,7 @@ export function Visao({ abrirAssistente }: { abrirAssistente: () => void }) {
           <Stat rotulo="Contas a pagar" valor={<Money c={sit.totalAPagar} />} dica={sit.compromissos.some((c) => c.atrasado) ? "há contas vencidas" : `${sit.compromissos.length} em aberto`} tom={sit.compromissos.some((c) => c.atrasado) ? "bad" : undefined} onClick={() => ir("contas")} />
           <Stat rotulo="A receber" valor={<Money c={sit.totalAReceber} />} dica="fora do dinheiro disponível" onClick={() => ir("contas")} />
           <Stat rotulo="Fatura atual" valor={<Money c={sit.faturaAtual} />} dica={d.cartoes.length ? "ainda aberta" : "nenhum cartão"} onClick={() => ir("contas", "cartoes")} />
-          <Stat rotulo="Capital do negócio" valor={<Money c={sit.capitalNegocio.total} />} dica={`${brl(sit.capitalNegocio.caixa)} caixa + ${brl(sit.capitalNegocio.estoque)} estoque`} onClick={() => ir("negocios")} />
+          <Stat rotulo="Capital do negócio" valor={<Money c={sit.capitalNegocio.total} />} dica={sit.capitalNegocio.estoque ? `${brl(sit.capitalNegocio.caixa)} caixa + ${brl(sit.capitalNegocio.estoque)} estoque` : `a receber ${brl(sit.capitalNegocio.aReceber)}`} onClick={() => ir("negocios")} />
           <Stat rotulo="Patrimônio financeiro" valor={<Money c={sit.patrimonio.total} />} dica="contas + investimentos − dívidas" onClick={() => ir("relatorios")} />
           <Stat rotulo="Investido" valor={<Money c={sit.investimentos.valorAtual} />} dica="valor atual informado" onClick={() => ir("metas")} />
         </div>

@@ -246,6 +246,60 @@ describe("estoque, vendas e lucro", () => {
   });
 });
 
+describe("negócios lançados à mão", () => {
+  const SEGUNDO = "env-neg-2";
+  const venda = (valor: number, extra: Partial<Receita> = {}) => receita(valor, { fonteId: "", negocioId: ENV.negocio, data: "2026-10-10", ...extra });
+  const comDois = () => { const d = base(); d.envelopes.push({ id: SEGUNDO, nome: "Revenda", tipo: "negocio", cor: "#000", meta: null, minimo: 0, arquivado: false, ordem: 9 }); return d; };
+
+  it("venda recebida entra na conta e no caixa do negócio, não no seu dinheiro", () => {
+    const d = base(); d.movimentos = [venda(8000)];
+    const sit = calcularSituacao(d, HOJE);
+    expect(sit.saldos.contas.inter).toBe(8000);
+    expect(sit.saldoEnv(sit.env.negocio)).toBe(8000);
+    expect(sit.saldos.aDistribuir).toBe(0);
+  });
+  it("venda a receber fatura mas não entra no caixa", () => {
+    const d = base(); d.movimentos = [venda(8000, { status: "pendente", previstaPara: "2026-10-25" })];
+    const sit = calcularSituacao(d, HOJE);
+    expect(sit.saldoEnv(sit.env.negocio)).toBe(0);
+    expect(sit.capitalNegocio.aReceber).toBe(8000);
+    const x = indicadores(d, sit, "2026-10-01", "2026-10-31");
+    expect(x.faturamento).toBe(8000);
+    expect(x.recebido).toBe(0);
+  });
+  it("lucro do negócio = vendas − gastos do negócio, separado por negócio", () => {
+    const d = comDois();
+    d.movimentos = [venda(16000), venda(5000, { negocioId: SEGUNDO }), despesa(3500, { escopo: "negocio", envelopeId: ENV.negocio, categoria: "Compra de mercadoria" })];
+    const sit = calcularSituacao(d, HOJE);
+    const a = indicadores(d, sit, "2026-10-01", "2026-10-31", ENV.negocio);
+    const b = indicadores(d, sit, "2026-10-01", "2026-10-31", SEGUNDO);
+    expect(a.faturamento).toBe(16000);
+    expect(a.lucroLiquido).toBe(12500);
+    expect(b.lucroLiquido).toBe(5000);
+    expect(indicadores(d, sit, "2026-10-01", "2026-10-31").lucroLiquido).toBe(17500);
+    expect(sit.capitalNegocio.caixa).toBe(16000 - 3500 + 5000);
+  });
+  it("venda do negócio não conta como renda pessoal no relatório (só o lucro)", () => {
+    const d = base(); d.movimentos = [receita(20000), venda(10000), despesa(4000, { escopo: "negocio", envelopeId: ENV.negocio })];
+    const sit = calcularSituacao(d, HOJE);
+    const r = relatorioPeriodo(d, sit, "2026-10-01", "2026-10-31");
+    expect(r.receitasPessoais).toBe(20000);
+    expect(r.ganhos).toBe(20000 + 6000);
+  });
+  it("retirada é calculada por negócio", () => {
+    const d = comDois(); d.envelopes.find((e) => e.id === ENV.negocio)!.minimo = 3000;
+    d.movimentos = [venda(10000), venda(7000, { negocioId: SEGUNDO })];
+    const sit = calcularSituacao(d, HOJE);
+    expect(disponivelParaRetirada(d, sit, ENV.negocio).valor).toBe(7000);
+    expect(disponivelParaRetirada(d, sit, SEGUNDO).valor).toBe(7000);
+  });
+  it("venda precisa de um negócio válido, mas não de fonte", () => {
+    const d = base();
+    expect(validarMovimento(venda(1000), d)).toEqual([]);
+    expect(validarMovimento(venda(1000, { negocioId: ENV.pc }), d).join(" ")).toMatch(/negócio/);
+  });
+});
+
 describe("cartão de crédito", () => {
   const compraC = (valor: number, data: string, parcelas = 1, extra: Partial<CompraCartao> = {}) => mov<CompraCartao>({ tipo: "cartao_compra", valor, cartaoId: "cartao", parcelas, categoria: "Compras", escopo: "pessoal", data, ...extra });
 

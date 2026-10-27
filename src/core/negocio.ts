@@ -1,4 +1,4 @@
-// Negócio NFC: faturamento ≠ dinheiro recebido ≠ lucro.
+// Negócios: faturamento ≠ dinheiro recebido ≠ lucro.
 //
 // Faturamento   = o que você vendeu (mesmo que ainda não tenha recebido).
 // Recebido      = o que entrou de fato no caixa no período.
@@ -30,12 +30,19 @@ export interface Indicadores {
 
 const dentro = (d: ISODate, ini: ISODate, fim: ISODate) => d >= ini && d <= fim;
 
-export function indicadores(d: Dados, sit: Situacao, ini: ISODate, fim: ISODate): Indicadores {
+export function indicadores(d: Dados, sit: Situacao, ini: ISODate, fim: ISODate, negocioId?: ID): Indicadores {
   let faturamento = 0, recebido = 0, unidades = 0, vendas = 0, cmv = 0, despOp = 0, compras = 0, cmvEstimado = false;
   const porProduto: Indicadores["porProduto"] = {};
+  const doNegocio = (envId?: ID | null) => !negocioId || envId === negocioId;
   for (const m of d.movimentos) {
-    if (m.tipo === "venda") {
+    if (m.tipo === "receita" && m.negocioId) {
+      // Venda registrada à mão num negócio
+      if (!doNegocio(m.negocioId) || !dentro(m.data, ini, fim)) continue;
+      faturamento += m.valor; vendas++;
+      if (m.status === "recebida") recebido += m.valor;
+    } else if (m.tipo === "venda") {
       const v = m as Venda;
+      if (!doNegocio(v.envelopeId)) continue;
       for (const r of v.recebimentos) if (!v.cancelada && dentro(r.data, ini, fim)) recebido += r.valor;
       if (v.cancelada || !dentro(v.data, ini, fim)) continue;
       const t = totaisVenda(v);
@@ -45,11 +52,11 @@ export function indicadores(d: Dados, sit: Situacao, ini: ISODate, fim: ISODate)
       const pp = (porProduto[v.produtoId] ??= { unidades: 0, faturamento: 0, lucroBruto: 0 });
       pp.unidades += v.qtd; pp.faturamento += t.bruto; pp.lucroBruto += t.bruto - c;
     } else if (m.tipo === "despesa" && (m as Despesa).escopo === "negocio" && dentro(m.data, ini, fim)) {
-      despOp += (m as Despesa).valor;
+      if (doNegocio((m as Despesa).envelopeId)) despOp += (m as Despesa).valor;
     } else if (m.tipo === "cartao_compra" && (m as CompraCartao).escopo === "negocio" && dentro(m.data, ini, fim)) {
-      despOp += (m as CompraCartao).valor;
+      if (!negocioId) despOp += (m as CompraCartao).valor;
     } else if (m.tipo === "estoque_compra" && m.status !== "inicial" && dentro(m.data, ini, fim)) {
-      compras += m.valor;
+      if (doNegocio(m.envelopeId)) compras += m.valor;
     }
   }
   const lucroBruto = faturamento - cmv;
@@ -58,20 +65,20 @@ export function indicadores(d: Dados, sit: Situacao, ini: ISODate, fim: ISODate)
 }
 
 /** Faturamento e lucro das últimas N semanas (segunda a domingo). */
-export function serieSemanal(d: Dados, sit: Situacao, hoje: ISODate, n = 8) {
+export function serieSemanal(d: Dados, sit: Situacao, hoje: ISODate, n = 8, negocioId?: ID) {
   const ini0 = inicioSemana(hoje);
   return Array.from({ length: n }, (_, i) => {
     const ini = addDias(ini0, -7 * (n - 1 - i)), fim = addDias(ini, 6);
-    const x = indicadores(d, sit, ini, fim);
+    const x = indicadores(d, sit, ini, fim, negocioId);
     return { ini, fim, faturamento: x.faturamento, lucro: x.lucroLiquido, unidades: x.unidades };
   });
 }
 
-export function serieMensal(d: Dados, sit: Situacao, hoje: ISODate, n = 6) {
+export function serieMensal(d: Dados, sit: Situacao, hoje: ISODate, n = 6, negocioId?: ID) {
   const atual = mesDe(hoje);
   return Array.from({ length: n }, (_, i) => {
     const key = addMesKey(atual, -(n - 1 - i));
-    const x = indicadores(d, sit, `${key}-01`, `${key}-31`);
+    const x = indicadores(d, sit, `${key}-01`, `${key}-31`, negocioId);
     return { key, faturamento: x.faturamento, lucro: x.lucroLiquido, unidades: x.unidades };
   });
 }
@@ -80,19 +87,16 @@ export function serieMensal(d: Dados, sit: Situacao, hoje: ISODate, n = 6) {
  * Quanto dá para tirar do negócio para você sem travar a operação.
  * Desconta: contas do negócio a pagar, reposição do estoque mínimo e o capital de giro mínimo.
  */
-export function disponivelParaRetirada(d: Dados, sit: Situacao) {
-  const e = sit.env.negocio;
+export function disponivelParaRetirada(d: Dados, sit: Situacao, negocioId?: ID) {
+  const e = negocioId ? d.envelopes.find((x) => x.id === negocioId) : sit.env.negocio;
   const caixa = sit.saldoEnv(e);
-  const contas = sit.compromissos.filter((c) => c.escopo === "negocio").reduce((a, c) => a + c.valor, 0);
-  const reposicao = sit.reposicao.total;
+  const unico = d.envelopes.filter((x) => x.tipo === "negocio" && !x.arquivado).length <= 1;
+  const contas = sit.compromissos.filter((c) => c.escopo === "negocio" && (unico || c.envelopeId === e?.id)).reduce((a, c) => a + c.valor, 0);
+  const reposicao = unico ? sit.reposicao.total : 0;
   const minimo = e?.minimo ?? 0;
   const valor = Math.max(0, caixa - contas - reposicao - minimo);
   const provisorio: string[] = [];
-  const ativos = d.produtos.filter((p) => p.ativo);
-  if (!ativos.length) provisorio.push("Nenhum produto cadastrado: não dá para calcular a reposição.");
-  if (ativos.some((p) => !p.custoReferencia)) provisorio.push("Há produtos sem custo cadastrado.");
-  if (ativos.length && ativos.every((p) => !p.estoqueMinimo)) provisorio.push("Nenhum produto tem estoque mínimo definido.");
-  if (!minimo) provisorio.push("O capital de giro mínimo ainda não foi definido.");
+  if (!minimo) provisorio.push("Defina o capital de giro mínimo (o dinheiro para o próximo lote), para o app não deixar você tirar demais.");
   return { caixa, contas, reposicao, minimo, valor, provisorio };
 }
 
@@ -105,7 +109,8 @@ export interface ParamSimulacao {
   semanas: number;
   prazoRecebimentoDias: number;
   pctPatrimonio: number;
-  estoqueAtual: number;
+  /** null = negócio sem controle de estoque. */
+  estoqueAtual: number | null;
   faltaMeta: Cents | null;
 }
 
@@ -120,7 +125,7 @@ export function simular(p: ParamSimulacao) {
   // Capital de giro: repor o que vende + bancar as semanas em que o dinheiro ainda não chegou
   const custoReposicaoSemana = u * (p.custoUnit + p.custoAdicional);
   const capitalDeGiro = custoReposicaoSemana * (1 + atrasoSemanas) + p.despesasSemana * atrasoSemanas;
-  const estoqueDuraSemanas = u > 0 ? Math.floor(p.estoqueAtual / u) : null;
+  const estoqueDuraSemanas = u > 0 && p.estoqueAtual != null ? Math.floor(p.estoqueAtual / u) : null;
   const paraPatrimonioSemana = lucroSemana > 0 ? Math.floor((lucroSemana * p.pctPatrimonio) / 100) : 0;
   const semanasRecebendo = Math.max(0, semanas - atrasoSemanas);
   const total = {
@@ -132,7 +137,7 @@ export function simular(p: ParamSimulacao) {
   };
   const semanasMeta = p.faltaMeta != null && p.faltaMeta > 0 && paraPatrimonioSemana > 0 ? Math.ceil(p.faltaMeta / paraPatrimonioSemana) : null;
   const avisos: string[] = [];
-  if (margemUnit <= 0) avisos.push(`Com esse preço, cada placa dá prejuízo de ${brl(-margemUnit)}.`);
+  if (margemUnit <= 0) avisos.push(`Com esse preço, cada venda dá prejuízo de ${brl(-margemUnit)}.`);
   if (estoqueDuraSemanas != null && estoqueDuraSemanas < semanas) avisos.push(`O estoque atual acaba em ${estoqueDuraSemanas} semana(s). Você vai precisar comprar mais.`);
   if (atrasoSemanas > 0) avisos.push(`Com ${p.prazoRecebimentoDias} dias para receber, o dinheiro chega ${atrasoSemanas} semana(s) depois da venda.`);
   return { margemUnit, lucroSemana, faturamentoSemana, capitalDeGiro, estoqueDuraSemanas, paraPatrimonioSemana, total, semanasMeta, avisos };

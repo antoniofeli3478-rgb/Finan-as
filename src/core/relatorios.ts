@@ -24,8 +24,9 @@ export function gastosNoPeriodo(d: Dados, ini: ISODate, fim: ISODate): Gasto[] {
   return out;
 }
 
+/** Rendas pessoais do período. Vendas de negócios ficam de fora: entram pelo lucro do negócio. */
 export function receitasNoPeriodo(d: Dados, ini: ISODate, fim: ISODate) {
-  return d.movimentos.filter((m): m is Receita => m.tipo === "receita" && m.data >= ini && m.data <= fim);
+  return d.movimentos.filter((m): m is Receita => m.tipo === "receita" && !m.negocioId && m.data >= ini && m.data <= fim);
 }
 
 export function relatorioPeriodo(d: Dados, sit: Situacao, ini: ISODate, fim: ISODate) {

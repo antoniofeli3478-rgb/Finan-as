@@ -2,7 +2,7 @@
 // Serve para criar e para editar. Toda gravação passa pelo repo (validação + recálculo).
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, CreditCard, Hourglass, PiggyBank, Scale, TrendingUp, Wallet } from "lucide-react";
+import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, CreditCard, Hourglass, PiggyBank, Scale, ShoppingBag, TrendingUp, Wallet } from "lucide-react";
 import { br } from "../core/dates";
 import { brl, type Cents } from "../core/money";
 import { datasDaFatura, faturaDaCompra } from "../core/cartao";
@@ -11,16 +11,16 @@ import { disponivelParaRetirada } from "../core/negocio";
 import { calcularSaldos, totaisVenda } from "../core/ledger";
 import type { Ajuste, CompraCartao, CompraEstoque, Despesa, Escopo, ID, Movimento, MovEnvelope, MovInvestimento, PagamentoFatura, Receita, Recebimento, Transferencia, Venda } from "../core/types";
 import { useApp } from "../app/store";
-import { ehDoNfc, URL_APP_NFC } from "../integracoes/nfc";
 import { db } from "../data/db";
 import { apagarMovimento, conciliar, ErroValidacao, movimentarInvestimento, novoId, salvarMovimento } from "../data/repo";
 import { Aviso, Button, Campo, cn, Data, Dinheiro, Folha, Interruptor, Money, Numero, Segmentos, Selecao, Texto, useUi } from "../ui/ui";
 import type { PedidoDistribuicao } from "./Distribuicao";
 
-export type TipoForm = "recebimento" | "despesa" | "transferencia" | "cartao" | "pendente" | "estoque" | "venda" | "aporte" | "investimento" | "ajuste" | "retirada" | "fatura";
+export type TipoForm = "recebimento" | "despesa" | "transferencia" | "cartao" | "pendente" | "estoque" | "venda" | "aporte" | "investimento" | "ajuste" | "retirada" | "fatura" | "venda_negocio";
 
 export const TIPOS: { id: TipoForm; nome: string; desc: string; icone: ReactNode }[] = [
   { id: "recebimento", nome: "Recebimento", desc: "Dinheiro que entrou", icone: <ArrowDownLeft size={20} /> },
+  { id: "venda_negocio", nome: "Venda do negócio", desc: "Algo que você vendeu", icone: <ShoppingBag size={20} /> },
   { id: "despesa", nome: "Despesa", desc: "Gasto ou conta a pagar", icone: <ArrowUpRight size={20} /> },
   { id: "cartao", nome: "Compra no cartão", desc: "Crédito, à vista ou parcelado", icone: <CreditCard size={20} /> },
   { id: "pendente", nome: "A receber", desc: "Trabalho que vão te pagar", icone: <Hourglass size={20} /> },
@@ -32,27 +32,16 @@ export const TIPOS: { id: TipoForm; nome: string; desc: string; icone: ReactNode
 ];
 
 const tipoDoMov = (m: Movimento): TipoForm => ({
-  receita: (m as Receita).status === "pendente" ? "pendente" : "recebimento", despesa: "despesa", transferencia: "transferencia",
+  receita: (m as Receita).negocioId ? "venda_negocio" : (m as Receita).status === "pendente" ? "pendente" : "recebimento", despesa: "despesa", transferencia: "transferencia",
   cartao_compra: "cartao", cartao_pagamento: "fatura", estoque_compra: "estoque", venda: "venda", envelope: (m as MovEnvelope).origem === "retirada" ? "retirada" : "aporte",
   investimento: "investimento", ajuste: "ajuste",
 } as Record<Movimento["tipo"], TipoForm>)[m.tipo];
 
-export interface PedidoNova { tipo?: TipoForm; editId?: ID; produtoId?: ID; envelopeDestino?: ID; valor?: Cents }
+export interface PedidoNova { tipo?: TipoForm; editId?: ID; produtoId?: ID; envelopeDestino?: ID; valor?: Cents; negocioId?: ID }
 
 export function NovaMovimentacao({ pedido, onFechar, onDistribuir }: { pedido: PedidoNova | null; onFechar: () => void; onDistribuir: (p: PedidoDistribuicao) => void }) {
   const { d } = useApp();
-  if (pedido?.editId && ehDoNfc(pedido.editId)) return <DoNfc onFechar={onFechar} />;
-  if (pedido && (pedido.tipo === "venda" || pedido.tipo === "estoque") && !pedido.editId) return <DoNfc onFechar={onFechar} novo />;
   return <Seletor d={d} pedido={pedido} onFechar={onFechar} onDistribuir={onDistribuir} />;
-}
-
-/** Vendas e estoque das placas são do app Plaquinhas NFC: aqui só aparecem. */
-function DoNfc({ onFechar, novo }: { onFechar: () => void; novo?: boolean }) {
-  return (
-    <Folha aberta onFechar={onFechar} titulo={novo ? "Registre no app das placas" : "Registro do Plaquinhas NFC"} rodape={<a href={URL_APP_NFC} className="flex h-11 w-full items-center justify-center rounded-xl bg-accent font-semibold text-accent-ink">Abrir Plaquinhas NFC</a>}>
-      <p className="pb-2 text-[15px] leading-relaxed text-muted">{novo ? "Vendas e entradas de estoque das placas são registradas no app Plaquinhas NFC. Elas aparecem aqui no Finanças sozinhas, com o lucro e o caixa do negócio calculados." : "Este registro vem do app Plaquinhas NFC. Para mudar ou apagar, faça lá: o Finanças atualiza sozinho quando você voltar."}</p>
-    </Folha>
-  );
 }
 
 function Seletor({ d, pedido, onFechar, onDistribuir }: { d: ReturnType<typeof useApp>["d"]; pedido: PedidoNova | null; onFechar: () => void; onDistribuir: (p: PedidoDistribuicao) => void }) {
@@ -88,6 +77,10 @@ function Formulario({ tipo, mov, pedido, onVoltar, onFechar, onDistribuir }: { t
   const envs = d.envelopes.filter((e) => !e.arquivado);
   const contaPadrao = contas[0]?.id ?? "";
   const E = sit.env;
+  const negocios = d.envelopes.filter((e) => e.tipo === "negocio" && (!e.arquivado || e.id === (m?.negocioId as string)));
+  const negocioInicial = (m?.negocioId as string) ?? (m?.tipo === "envelope" ? (m as unknown as MovEnvelope).itens[0]?.envelopeId : undefined) ?? pedido.negocioId ?? E.negocio?.id ?? negocios[0]?.id ?? "";
+  const [negocioId, setNegocioId] = useState<string>(negocioInicial);
+  const [vendaRecebida, setVendaRecebida] = useState<boolean>(m ? m.status === "recebida" : true);
 
   // Campos comuns
   const [valor, setValor] = useState<Cents | null>((m?.valor as number) ?? pedido.valor ?? null);
@@ -102,13 +95,13 @@ function Formulario({ tipo, mov, pedido, onVoltar, onFechar, onDistribuir }: { t
   const [previstaPara, setPrevista] = useState<string>((m?.previstaPara as string) ?? hoje);
   const [distribuirAgora, setDistribuirAgora] = useState(true);
   // Despesa
-  const [escopo, setEscopo] = useState<Escopo>((m?.escopo as Escopo) ?? "pessoal");
+  const [escopo, setEscopo] = useState<Escopo>((m?.escopo as Escopo) ?? (pedido.negocioId ? "negocio" : "pessoal"));
   const [pagaAgora, setPagaAgora] = useState<boolean>(m ? m.status === "paga" : true);
   const [categoria, setCategoria] = useState<string>((m?.categoria as string) ?? "");
   const [vencimento, setVencimento] = useState<string>((m?.vencimento as string) ?? hoje);
   const [prioridade, setPrioridade] = useState<"1" | "2" | "3">(String((m?.prioridade as number) ?? 2) as "1" | "2" | "3");
-  const envPadrao = (esc: Escopo, paga: boolean) => (esc === "negocio" ? E.negocio?.id : paga ? E.livre?.id : E.obrigacoes?.id) ?? envs[0]?.id ?? "";
-  const [envelopeId, setEnvelopeId] = useState<string>((m?.envelopeId as string) ?? envPadrao("pessoal", true));
+  const envPadrao = (esc: Escopo, paga: boolean) => (esc === "negocio" ? pedido.negocioId ?? E.negocio?.id : paga ? E.livre?.id : E.obrigacoes?.id) ?? envs[0]?.id ?? "";
+  const [envelopeId, setEnvelopeId] = useState<string>((m?.envelopeId as string) ?? envPadrao(escopo, true));
   const [envTocado, setEnvTocado] = useState(!!m);
   useEffect(() => { if (!envTocado && (tipo === "despesa" || tipo === "cartao")) setEnvelopeId(envPadrao(escopo, pagaAgora)); }, [escopo, pagaAgora]); // eslint-disable-line
   useEffect(() => { const cats = d.config.categorias[escopo]; if (!cats.includes(categoria)) setCategoria(cats[0] ?? "Outros"); }, [escopo]); // eslint-disable-line
@@ -171,6 +164,8 @@ function Formulario({ tipo, mov, pedido, onVoltar, onFechar, onDistribuir }: { t
     switch (tipo) {
       case "recebimento": case "pendente":
         return { ...base, tipo: "receita", valor: v, fonteId, contaId, status: tipo === "pendente" ? "pendente" : "recebida", previstaPara: tipo === "pendente" ? previstaPara : null, descricao: base.descricao || (d.config.fontes.find((f) => f.id === fonteId)?.nome ?? "Recebimento") } as Receita;
+      case "venda_negocio":
+        return { ...base, tipo: "receita", valor: v, fonteId: (m?.fonteId as string) ?? "", contaId, negocioId, status: vendaRecebida ? "recebida" : "pendente", previstaPara: vendaRecebida ? null : previstaPara, descricao: base.descricao || `Venda ${nomeEnv(negocioId)}`.trim() } as Receita;
       case "despesa":
         return { ...(m ?? {}), ...base, tipo: "despesa", valor: v, categoria, escopo, envelopeId, status: pagaAgora ? "paga" : "pendente", contaId: pagaAgora ? contaId : contaId || null, vencimento: pagaAgora ? null : vencimento, pagaEm: pagaAgora ? data : null, prioridade: Number(prioridade) as 1 | 2 | 3, descricao: base.descricao || categoria } as Despesa;
       case "transferencia":
@@ -198,7 +193,7 @@ function Formulario({ tipo, mov, pedido, onVoltar, onFechar, onDistribuir }: { t
         return { ...base, tipo: "envelope", origem: deEnv === "livre-dist" ? "distribuicao" : "aporte", itens, receitaId: movEnv?.receitaId ?? null, descricao: base.descricao || `Para ${nomeEnv(paraEnv)}` } as MovEnvelope;
       }
       case "retirada":
-        return { ...base, tipo: "envelope", origem: "retirada", itens: [{ envelopeId: E.negocio?.id ?? "", valor: -v }], receitaId: null, descricao: base.descricao || "Retirada do negócio" } as MovEnvelope;
+        return { ...base, tipo: "envelope", origem: "retirada", itens: [{ envelopeId: negocioId, valor: -v }], receitaId: null, descricao: base.descricao || `Retirada de ${nomeEnv(negocioId)}` } as MovEnvelope;
       case "investimento":
         return { ...base, tipo: "investimento", investimentoId, direcao, valor: v, contaId, envelopeId: invEnv === "nenhum" ? null : invEnv, descricao: base.descricao || (direcao === "aporte" ? "Aporte" : "Resgate") } as MovInvestimento;
       case "ajuste":
@@ -222,7 +217,7 @@ function Formulario({ tipo, mov, pedido, onVoltar, onFechar, onDistribuir }: { t
       }
       const novo = montar();
       if (!novo) return;
-      if (novo.tipo === "receita" && !m) {
+      if (novo.tipo === "receita" && !novo.negocioId && !m) {
         const dup = possivelDuplicata(novo, d);
         if (dup && !(await confirmar({ titulo: "Recebimento parecido já registrado", texto: <>Já existe <b>{dup.descricao}</b> de {brl(dup.valor)} em {br(dup.data)}, da mesma fonte. Registrar outro mesmo assim?</>, botao: "Registrar mesmo assim" }))) return;
       }
@@ -238,7 +233,7 @@ function Formulario({ tipo, mov, pedido, onVoltar, onFechar, onDistribuir }: { t
       }
       toast(m ? "Alterações salvas" : "Registrado");
       onFechar();
-      if (!m && novo.tipo === "receita" && novo.status === "recebida" && distribuirAgora) onDistribuir({ valor: novo.valor, receitaId: novo.id, fonteId: novo.fonteId, titulo: `Distribuir ${brl(novo.valor)}` });
+      if (!m && novo.tipo === "receita" && !novo.negocioId && novo.status === "recebida" && distribuirAgora) onDistribuir({ valor: novo.valor, receitaId: novo.id, fonteId: novo.fonteId, titulo: `Distribuir ${brl(novo.valor)}` });
       if (!m && tipo === "retirada" && distribuirAgora) onDistribuir({ valor: novo.tipo === "envelope" ? -novo.itens[0].valor : 0, fonteId: "nfc", titulo: "Distribuir a retirada" });
     } catch (e) {
       if (e instanceof ErroValidacao) setErros(e.problemas); else setErros([(e as Error).message]);
@@ -265,6 +260,7 @@ function Formulario({ tipo, mov, pedido, onVoltar, onFechar, onDistribuir }: { t
   const campoConta = (rotulo = "Conta") => <Campo rotulo={rotulo}><Selecao value={contaId} onChange={setContaId} opcoes={opContas} /></Campo>;
   const campoCategoria = () => <Campo rotulo="Categoria"><Selecao value={categoria} onChange={setCategoria} opcoes={d.config.categorias[escopo].map((c) => ({ valor: c, rotulo: c }))} /></Campo>;
   const campoEscopo = () => <Segmentos value={escopo} onChange={setEscopo} opcoes={[{ valor: "pessoal", rotulo: "Pessoal" }, { valor: "negocio", rotulo: "Negócio" }]} />;
+  const campoNegocio = () => negocios.length > 1 ? <Campo rotulo="Negócio"><Selecao value={negocioId} onChange={setNegocioId} opcoes={negocios.map((e) => ({ valor: e.id, rotulo: e.nome }))} /></Campo> : null;
   const linha = (...c: ReactNode[]) => <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">{c}</div>;
 
   let corpo: ReactNode = null;
@@ -279,6 +275,18 @@ function Formulario({ tipo, mov, pedido, onVoltar, onFechar, onDistribuir }: { t
         {tipo === "pendente" && campoData("Data do trabalho")}
         {tipo === "recebimento" && !m && <label className="flex items-center justify-between gap-3 rounded-xl bg-surface-2 px-3.5 py-3"><span className="text-[14px]"><b>Distribuir agora</b><br /><span className="text-muted">Ver a sugestão de para onde vai cada parte</span></span><Interruptor ligado={distribuirAgora} onChange={setDistribuirAgora} rotulo="Distribuir agora" /></label>}
         {tipo === "pendente" && <Aviso tom="info">Dinheiro a receber não entra no seu saldo nem no dinheiro livre até você marcar como recebido.</Aviso>}
+      </>;
+      break;
+    case "venda_negocio":
+      if (!negocios.length) { corpo = <Aviso tom="info">Crie seu negócio em Meus negócios → Novo negócio para registrar vendas.</Aviso>; break; }
+      corpo = <>
+        {campoNegocio()}
+        {campoValor("Valor da venda")}
+        {campoDesc("Ex.: 3 plaquinhas para a Padaria do bairro")}
+        <Campo grupo rotulo="Recebimento"><Segmentos value={vendaRecebida ? "sim" : "nao"} onChange={(v) => setVendaRecebida(v === "sim")} opcoes={[{ valor: "sim", rotulo: "Já recebi" }, { valor: "nao", rotulo: "Vou receber" }]} /></Campo>
+        {linha(<div key="c">{campoConta(vendaRecebida ? "Entrou em" : "Vai entrar em")}</div>, <div key="d">{campoData("Data da venda")}</div>)}
+        {!vendaRecebida && <Campo rotulo="Previsto para"><Data value={previstaPara} onChange={setPrevista} /></Campo>}
+        <Aviso tom="info">{vendaRecebida ? `O dinheiro entra no caixa de ${nomeEnv(negocioId) || "o negócio"}, separado do seu dinheiro pessoal. Para usar com você, faça uma retirada.` : "Fica em \"a receber\" e não entra no caixa até você marcar como recebido."}</Aviso>
       </>;
       break;
     case "despesa": {
@@ -406,15 +414,16 @@ function Formulario({ tipo, mov, pedido, onVoltar, onFechar, onDistribuir }: { t
       break;
     }
     case "retirada": {
-      const r = disponivelParaRetirada(d, sit);
+      const r = disponivelParaRetirada(d, sit, negocioId);
       corpo = <>
+        {campoNegocio()}
         <div className="rounded-2xl bg-surface-2 p-4">
           <div className="text-[13px] text-muted">Pode tirar sem travar o negócio</div>
           <div className="font-display text-[28px] font-semibold num">{brl(r.valor)}</div>
           <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-[13px]">
             <span className="text-muted">Caixa do negócio</span><Money c={r.caixa} className="text-right" />
             <span className="text-muted">Contas do negócio</span><Money c={-r.contas} className="text-right" />
-            <span className="text-muted">Repor estoque mínimo</span><Money c={-r.reposicao} className="text-right" />
+            {r.reposicao > 0 && <><span className="text-muted">Repor estoque mínimo</span><Money c={-r.reposicao} className="text-right" /></>}
             <span className="text-muted">Capital de giro mínimo</span><Money c={-r.minimo} className="text-right" />
           </div>
         </div>

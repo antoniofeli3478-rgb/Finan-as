@@ -8,7 +8,7 @@ export const ENV = { obrigacoes: "env-obrigacoes", negocio: "env-negocio", pc: "
 export function envelopesIniciais(): Envelope[] {
   return [
     { id: ENV.obrigacoes, nome: "Obrigações", tipo: "obrigacoes", cor: "#e0a458", meta: null, arquivado: false, ordem: 1 },
-    { id: ENV.negocio, nome: "Negócio e estoque", tipo: "negocio", cor: "#5aa9e6", meta: null, minimo: 0, arquivado: false, ordem: 2 },
+    { id: ENV.negocio, nome: "Plaquinhas NFC", tipo: "negocio", cor: "#5aa9e6", meta: null, minimo: 0, arquivado: false, ordem: 2 },
     { id: ENV.pc, nome: "Meta do PC", tipo: "pc", cor: "#b38cff", meta: 500000, prazo: null, arquivado: false, ordem: 3 },
     { id: ENV.reserva, nome: "Reserva de emergência", tipo: "reserva", cor: "#4fbf9f", meta: null, metaModo: "despesas", mesesReserva: 3, arquivado: false, ordem: 4 },
     { id: ENV.investimentos, nome: "Para investir", tipo: "investimentos", cor: "#7fc8a9", meta: null, arquivado: false, ordem: 5 },
@@ -20,7 +20,7 @@ export function estrategiasIniciais(): Estrategia[] {
   const obr = { envelopeId: ENV.obrigacoes, modo: "necessidade" as const, valor: 100 };
   return [
     { id: "est-trabalho", nome: "Trabalhos e eventos", restoEnvelopeId: ENV.livre, regras: [obr, { envelopeId: ENV.pc, modo: "percentual", valor: 30 }, { envelopeId: ENV.reserva, modo: "percentual", valor: 20 }] },
-    { id: "est-nfc", nome: "Lucro retirado do negócio NFC", restoEnvelopeId: ENV.livre, regras: [obr, { envelopeId: ENV.pc, modo: "percentual", valor: 40 }, { envelopeId: ENV.reserva, modo: "percentual", valor: 20 }] },
+    { id: "est-nfc", nome: "Lucro retirado dos negócios", restoEnvelopeId: ENV.livre, regras: [obr, { envelopeId: ENV.pc, modo: "percentual", valor: 40 }, { envelopeId: ENV.reserva, modo: "percentual", valor: 20 }] },
     { id: "est-outras", nome: "Outras rendas", restoEnvelopeId: ENV.livre, regras: [obr, { envelopeId: ENV.pc, modo: "percentual", valor: 25 }, { envelopeId: ENV.reserva, modo: "percentual", valor: 25 }] },
     { id: "est-extra", nome: "Receitas extraordinárias", restoEnvelopeId: ENV.livre, regras: [obr, { envelopeId: ENV.negocio, modo: "necessidade", valor: 30 }, { envelopeId: ENV.reserva, modo: "percentual", valor: 40 }, { envelopeId: ENV.pc, modo: "percentual", valor: 40 }] },
   ];
@@ -31,7 +31,7 @@ export function fontesIniciais(): Fonte[] {
     { id: "eventos", nome: "Eventos e recreação", estrategiaId: "est-trabalho" },
     { id: "temporario", nome: "Serviços temporários", estrategiaId: "est-trabalho" },
     { id: "conteudo", nome: "Conteúdo e serviços digitais", estrategiaId: "est-outras" },
-    { id: "nfc", nome: "Retirada do negócio NFC", estrategiaId: "est-nfc" },
+    { id: "nfc", nome: "Retirada de negócio", estrategiaId: "est-nfc" },
     { id: "outras", nome: "Outras rendas", estrategiaId: "est-outras" },
     { id: "extra", nome: "Receita extraordinária", estrategiaId: "est-extra" },
   ];
@@ -45,7 +45,7 @@ export function configInicial(): Config {
     fontes: fontesIniciais(), estrategias: estrategiasIniciais(), ultimoBackup: null, setup: {}, setupDispensado: false,
     categorias: {
       pessoal: ["Casa", "Academia e esporte", "Assinaturas", "Alimentação", "Lazer", "Transporte", "Compras", "Saúde", "Estudos", "Outros"],
-      negocio: ["Transporte e prospecção", "Embalagens", "Materiais", "Taxas", "Divulgação", "Outros do negócio"],
+      negocio: ["Compra de mercadoria", "Transporte e prospecção", "Embalagens", "Materiais", "Taxas", "Divulgação", "Outros do negócio"],
     },
   };
 }

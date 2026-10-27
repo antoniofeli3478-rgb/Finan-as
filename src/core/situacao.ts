@@ -132,7 +132,7 @@ export function calcularSituacao(d: Dados, hoje: ISODate): Situacao {
     if (m.tipo === "receita" && (m as Receita).status === "pendente") {
       const x = m as Receita;
       const prev = x.previstaPara || x.data;
-      aReceber.push({ origem: "receita", movId: x.id, descricao: x.descricao, valor: x.valor, previsto: prev, atrasado: diffDias(hoje, prev) > 0, escopo: "pessoal" });
+      aReceber.push({ origem: "receita", movId: x.id, descricao: x.descricao, valor: x.valor, previsto: prev, atrasado: diffDias(hoje, prev) > 0, escopo: x.negocioId ? "negocio" : "pessoal" });
     }
     if (m.tipo === "venda") {
       const v = m as Venda;
@@ -148,9 +148,12 @@ export function calcularSituacao(d: Dados, hoje: ISODate): Situacao {
   // ── Cobertura: as contas próximas já têm dinheiro separado? ──
   const proximos = (esc: Escopo) => compromissos.filter((c) => c.escopo === esc && c.vencimento <= horizonte).reduce((a, c) => a + c.valor, 0);
   const cob = (necessario: Cents, reservado: Cents) => ({ necessario, reservado, descoberto: Math.max(0, necessario - Math.max(0, reservado)) });
+  // Você pode ter mais de um negócio: cada um é um envelope do tipo "negocio"
+  const negocios = d.envelopes.filter((e) => e.tipo === "negocio" && !e.arquivado);
+  const caixaNegocios = negocios.reduce((a, e) => a + (saldos.envelopes[e.id] ?? 0), 0);
   const cobertura = {
     pessoal: cob(proximos("pessoal"), saldoEnv(env.obrigacoes)),
-    negocio: cob(proximos("negocio"), saldoEnv(env.negocio)),
+    negocio: cob(proximos("negocio"), caixaNegocios),
   };
 
   // ── Dinheiro livre de verdade ──
@@ -174,7 +177,7 @@ export function calcularSituacao(d: Dados, hoje: ISODate): Situacao {
   const reposicao = reposicaoNecessaria(d.produtos, estoque);
   const valorEstoque = Object.values(estoque.porProduto).reduce((a, p) => a + p.custoTotal, 0);
   const receberNegocio = aReceber.filter((r) => r.escopo === "negocio").reduce((a, r) => a + r.valor, 0);
-  const caixaNegocio = saldoEnv(env.negocio);
+  const caixaNegocio = caixaNegocios;
 
   const totalAPagar = compromissos.reduce((a, c) => a + c.valor, 0);
   const totalAReceber = aReceber.reduce((a, r) => a + r.valor, 0);

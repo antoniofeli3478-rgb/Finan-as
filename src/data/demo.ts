@@ -18,10 +18,6 @@ export async function popularDemo(db: FinDB, hoje: ISODate) {
   await db.envelopes.update(ENV.negocio, { minimo: 20000 });
   await db.envelopes.update(ENV.pc, { meta: 500000, prazo: addMeses(hoje, 8) });
   await db.cartoes.put({ id: "cartao-demo", nome: "Inter (exemplo)", limite: 150000, limiteDisponivelInformado: null, fechamentoDia: 3, vencimentoDia: 10, arquivado: false });
-  await db.produtos.bulkPut([
-    { id: "p-google", nome: "Placa Google Avaliações", categoria: "Google", precoVenda: 8000, custoReferencia: 1400, custoHistorico: [{ data: d(-60), custo: 1400 }, { data: d(-20), custo: 1167 }], custoAdicional: 0, estoqueMinimo: 10, fornecedor: "Fornecedor exemplo", ativo: true },
-    { id: "p-pix", nome: "Placa Pix", categoria: "Pix", precoVenda: 8990, custoReferencia: 1400, custoHistorico: [], custoAdicional: 0, estoqueMinimo: 5, ativo: true },
-  ]);
   await db.investimentos.put({ id: "inv-demo", nome: "CDB liquidez diária (exemplo)", instituicao: "Banco exemplo", valorAtual: 30500, atualizadoEm: d(-3), arquivado: false });
   await db.recorrencias.bulkPut([
     { id: "rec-casa", nome: "Ajuda em casa", valor: 30000, variavel: false, categoria: "Casa", escopo: "pessoal", envelopeId: ENV.obrigacoes, frequencia: "mensal", intervalo: 1, inicio: d(6), geradoAte: null, prioridade: 1, ativa: true, contaId: "conta-inter" },
@@ -31,17 +27,17 @@ export async function popularDemo(db: FinDB, hoje: ISODate) {
 
   const movs: Movimento[] = [
     m({ tipo: "envelope", origem: "distribuicao", data: d(-40), descricao: "Saldo inicial distribuído", receitaId: null, itens: [{ envelopeId: ENV.obrigacoes, valor: 60000 }, { envelopeId: ENV.negocio, valor: 40000 }, { envelopeId: ENV.pc, valor: 15000 }, { envelopeId: ENV.reserva, valor: 5000 }, { envelopeId: ENV.livre, valor: 17000 }] }),
-    m({ tipo: "estoque_compra", produtoId: "p-google", qtd: 30, valor: 35010, status: "paga", contaId: "conta-inter", envelopeId: ENV.negocio, data: d(-35), descricao: "Lote de 30 placas Google", fornecedor: "Fornecedor exemplo" }),
-    m({ tipo: "estoque_compra", produtoId: "p-pix", qtd: 6, valor: 8400, status: "inicial", contaId: null, envelopeId: ENV.negocio, data: d(-40), descricao: "Estoque que já existia" }),
   ];
-  const vendas: [number, string, number, number, number, string][] = [
-    [-30, "p-google", 2, 8000, 0, "Padaria (exemplo)"], [-26, "p-google", 1, 8000, 0, "Barbearia (exemplo)"], [-21, "p-pix", 1, 8990, 0, "Mercadinho (exemplo)"],
-    [-17, "p-google", 3, 7500, 0, "Clínica (exemplo)"], [-12, "p-google", 2, 8000, 0, "Pet shop (exemplo)"], [-6, "p-google", 1, 8000, 0, "Lanchonete (exemplo)"],
+  // Negócio: vendas e gastos lançados à mão
+  movs.push(m({ tipo: "despesa", valor: 35010, categoria: "Compra de mercadoria", escopo: "negocio", envelopeId: ENV.negocio, status: "paga", contaId: "conta-inter", data: d(-35), pagaEm: d(-35), descricao: "Lote de 30 placas" }));
+  const vendas: [number, number, string][] = [
+    [-30, 16000, "2 placas · Padaria (exemplo)"], [-26, 8000, "1 placa · Barbearia (exemplo)"], [-21, 8990, "1 placa Pix · Mercadinho (exemplo)"],
+    [-17, 22500, "3 placas · Clínica (exemplo)"], [-12, 16000, "2 placas · Pet shop (exemplo)"], [-6, 8000, "1 placa · Lanchonete (exemplo)"],
   ];
-  for (const [dia, prod, qtd, preco, desc, cliente] of vendas) {
-    movs.push(m({ tipo: "venda", produtoId: prod, qtd, precoUnit: preco, desconto: desc, forma: "Pix", cliente, cancelada: false, data: d(dia), descricao: "Venda", recebimentos: [{ id: novoId(), valor: qtd * preco - desc, data: d(dia), contaId: "conta-inter" }], despesasDiretas: 0, custoAdicionalUnit: 0, envelopeId: ENV.negocio, previstaPara: null }));
+  for (const [dia, valor, descricao] of vendas) {
+    movs.push(m({ tipo: "receita", valor, fonteId: "", negocioId: ENV.negocio, contaId: "conta-inter", status: "recebida", data: d(dia), descricao }));
   }
-  movs.push(m({ tipo: "venda", produtoId: "p-google", qtd: 2, precoUnit: 8000, desconto: 1000, forma: "Pix", cliente: "Restaurante (exemplo)", cancelada: false, data: d(-4), descricao: "Venda", recebimentos: [{ id: novoId(), valor: 5000, data: d(-4), contaId: "conta-inter" }], despesasDiretas: 600, contaDespesasId: "conta-dinheiro", custoAdicionalUnit: 0, envelopeId: ENV.negocio, previstaPara: d(3) }));
+  movs.push(m({ tipo: "receita", valor: 15000, fonteId: "", negocioId: ENV.negocio, contaId: "conta-inter", status: "pendente", previstaPara: d(3), data: d(-4), descricao: "2 placas · Restaurante (exemplo)" }));
   movs.push(m({ tipo: "despesa", valor: 2500, categoria: "Transporte e prospecção", escopo: "negocio", envelopeId: ENV.negocio, status: "paga", contaId: "conta-dinheiro", data: d(-15), descricao: "Uber para prospecção" }));
   // Trabalhos e distribuição
   const rec1 = m<Extract<Movimento, { tipo: "receita" }>>({ tipo: "receita", valor: 25000, fonteId: "eventos", contaId: "conta-inter", status: "recebida", data: d(-20), descricao: "Recreação em festa (exemplo)" });

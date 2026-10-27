@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight, Download, Printer } from "lucide-react";
 import { addDias, addMesKey, anoDe, br, inicioSemana, mesDe, nomeMes, nomeMesCurto } from "../core/dates";
 import { brl } from "../core/money";
 import { evolucaoCaixa, relatorioPeriodo } from "../core/relatorios";
-import { ritmoVendas, indicadores } from "../core/negocio";
+import { indicadores } from "../core/negocio";
 import { useApp } from "../app/store";
 import { ir } from "../app/rotas";
 import { movimentosCSV } from "../data/backup";
@@ -84,7 +84,7 @@ export function Relatorios() {
         <Secao titulo="Receitas por fonte">
           <Card className="p-4">
             {Object.keys(r.porFonte).length || r.nfc.faturamento ? (
-              <BarrasH itens={[...Object.entries(r.porFonte).map(([id, v]) => ({ rotulo: fonte(id), valor: v, cor: "var(--good)" })), ...(r.nfc.faturamento ? [{ rotulo: "Vendas NFC (lucro líquido)", valor: r.nfc.lucroLiquido, cor: "#5aa9e6", extra: `faturamento ${brl(r.nfc.faturamento)}` }] : [])].sort((a, b) => b.valor - a.valor)} />
+              <BarrasH itens={[...Object.entries(r.porFonte).map(([id, v]) => ({ rotulo: fonte(id), valor: v, cor: "var(--good)" })), ...(r.nfc.faturamento ? [{ rotulo: "Negócios (lucro líquido)", valor: r.nfc.lucroLiquido, cor: "#5aa9e6", extra: `faturamento ${brl(r.nfc.faturamento)}` }] : [])].sort((a, b) => b.valor - a.valor)} />
             ) : <div className="py-4 text-center text-[14px] text-muted">Nenhuma receita no período.</div>}
           </Card>
         </Secao>
@@ -99,9 +99,9 @@ export function Relatorios() {
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <Secao titulo="Plaquinhas NFC no período">
+        <Secao titulo="Negócios no período">
           <Card className="flex flex-col divide-y divide-line px-4 py-1 text-[14px]">
-            {[["Faturamento", r.nfc.faturamento], ["Recebido", r.nfc.recebido], ["Custo das placas vendidas", -r.nfc.cmv], ["Lucro bruto", r.nfc.lucroBruto], ["Despesas do negócio", -r.nfc.despesasOperacionais], ["Lucro líquido", r.nfc.lucroLiquido]].map(([k, v]) => (
+            {[["Faturamento", r.nfc.faturamento], ["Recebido", r.nfc.recebido], ["Gastos do negócio", -r.nfc.despesasOperacionais], ["Lucro líquido", r.nfc.lucroLiquido]].map(([k, v]) => (
               <div key={k as string} className="flex justify-between py-2"><span className={k === "Lucro líquido" ? "font-semibold" : "text-muted"}>{k}</span><Money c={v as number} className="font-semibold" /></div>
             ))}
             <div className="flex justify-between py-2"><span className="text-muted">Margem</span><b>{r.nfc.margem == null ? "—" : `${Math.round(r.nfc.margem * 100)}%`}</b></div>
@@ -139,7 +139,7 @@ export function Relatorios() {
             <div className="flex justify-between py-2"><span className="text-muted">Investimentos</span><Money c={sit.patrimonio.investimentos} /></div>
             <div className="flex justify-between py-2"><span className="text-muted">Dívidas e contas a pagar</span><Money c={-sit.patrimonio.dividas} /></div>
             <div className="flex justify-between py-2 font-semibold"><span>Total</span><Money c={sit.patrimonio.total} /></div>
-            <div className="py-2 text-[12px] text-muted">Fora da conta: {brl(sit.capitalNegocio.estoque)} em estoque e {brl(sit.totalAReceber)} a receber. Limite do cartão nunca entra.</div>
+            <div className="py-2 text-[12px] text-muted">Fora da conta: {sit.capitalNegocio.estoque ? `${brl(sit.capitalNegocio.estoque)} em estoque e ` : ""}{brl(sit.totalAReceber)} a receber. Limite do cartão nunca entra.</div>
           </Card>
         </Secao>
       </div>
@@ -150,33 +150,31 @@ export function Relatorios() {
 
 function ProjecaoNegocio() {
   const { d, sit, hoje } = useApp();
-  const ritmo = ritmoVendas(d, hoje, 8);
-  const x = indicadores(d, sit, addDias(hoje, -55), hoje);
-  const lucroPorUnidade = x.unidades ? Math.round(x.lucroLiquido / x.unidades) : null;
+  // Base: lucro líquido das últimas 8 semanas, somando todos os negócios
+  const x = indicadores(d, sit, addDias(inicioSemana(hoje), -49), hoje);
+  const lucroSemana = Math.round(x.lucroLiquido / 8);
   const [mult, setMult] = useState({ conservador: 70, intermediario: 100, otimista: 130 });
-  if (!ritmo || lucroPorUnidade == null) return (
-    <Secao titulo="Projeção das Plaquinhas NFC"><Card className="p-4 text-[14px] text-muted">Registre vendas por algumas semanas para o app projetar o crescimento. Até lá, use a Simulação em Meus negócios.</Card></Secao>
+  if (!x.vendas) return (
+    <Secao titulo="Projeção dos negócios"><Card className="p-4 text-[14px] text-muted">Registre vendas por algumas semanas para o app projetar o crescimento. Até lá, use a Simulação em Meus negócios.</Card></Secao>
   );
   return (
-    <Secao titulo="Projeção das Plaquinhas NFC (próximos 3 meses)">
+    <Secao titulo="Projeção dos negócios (próximos 3 meses)">
       <Card className="flex flex-col gap-3 p-4">
-        <p className="text-[13.5px] text-muted">Base real das últimas 8 semanas: {ritmo.unidadesSemana.toFixed(1).replace(".", ",")} placas por semana e {brl(lucroPorUnidade)} de lucro líquido por placa. Ajuste o ritmo de cada cenário:</p>
+        <p className="text-[13.5px] text-muted">Base real das últimas 8 semanas: {x.vendas} venda(s), {brl(x.faturamento)} faturados e {brl(lucroSemana)} de lucro líquido por semana, em média. Ajuste o ritmo de cada cenário:</p>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           {(Object.keys(mult) as (keyof typeof mult)[]).map((k) => {
-            const u = (ritmo.unidadesSemana * mult[k]) / 100;
-            const lucroMes = Math.round(u * 4.33 * lucroPorUnidade);
+            const lucroMes = Math.round((lucroSemana * mult[k] * 4.33) / 100);
             return (
               <div key={k} className={cn("flex flex-col gap-2 rounded-xl p-3", k === "intermediario" ? "bg-accent-soft" : "bg-surface-2")}>
                 <div className="text-[13px] font-semibold capitalize">{k === "intermediario" ? "Intermediário" : k}</div>
                 <label className="flex items-center gap-2 text-[13px] text-muted">Ritmo <input type="number" value={mult[k]} onChange={(e) => setMult((m) => ({ ...m, [k]: Math.max(0, Number(e.target.value) || 0) }))} className="h-8 w-16 rounded-lg border border-line bg-surface px-2 text-ink" />%</label>
-                <div className="text-[13.5px]">{u.toFixed(1).replace(".", ",")} placas/semana</div>
                 <div><Money c={lucroMes} className="text-[18px] font-semibold" /><span className="text-[12.5px] text-muted"> lucro por mês</span></div>
                 <div className="text-[12.5px] text-muted">3 meses: {brl(lucroMes * 3)}</div>
               </div>
             );
           })}
         </div>
-        <p className="text-[12px] text-muted">Premissas explícitas: preço, custo e despesas iguais às das últimas 8 semanas; um mês = 4,33 semanas. Não é renda garantida.</p>
+        <p className="text-[12px] text-muted">Premissas explícitas: vendas e gastos no mesmo ritmo das últimas 8 semanas; um mês = 4,33 semanas. Não é renda garantida.</p>
       </Card>
     </Secao>
   );

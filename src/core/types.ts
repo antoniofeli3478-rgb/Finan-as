@@ -65,6 +65,11 @@ export interface Receita extends Base {
   status: "recebida" | "pendente";
   /** Para pendentes: quando você espera receber. */
   previstaPara?: ISODate | null;
+  /**
+   * Venda de um negócio seu (envelope do tipo "negocio"). O dinheiro entra no caixa daquele
+   * negócio, não no seu dinheiro pessoal. Para usar com você, faça uma retirada.
+   */
+  negocioId?: ID | null;
 }
 
 /** Gasto pago na hora (pix, débito, dinheiro) ou conta a pagar (pendente). */
@@ -142,11 +147,7 @@ export interface CompraEstoque extends Base {
   fornecedor?: string;
 }
 
-export interface Recebimento {
-  id: ID; valor: Cents; data: ISODate; contaId: ID;
-  /** Recebido antes de o app acompanhar o caixa (já está no saldo informado): conta no faturamento, não no caixa. */
-  historico?: boolean;
-}
+export interface Recebimento { id: ID; valor: Cents; data: ISODate; contaId: ID }
 
 export interface Venda extends Base {
   tipo: "venda";
@@ -282,8 +283,6 @@ export interface Config {
   setup: { [passo: string]: boolean };
   setupDispensado: boolean;
   categorias: { pessoal: string[]; negocio: string[] };
-  /** Negócios ligados (apps separados). Por enquanto: Plaquinhas NFC. */
-  negocios?: { nfc?: { ativo: boolean; contaId: ID; desde: ISODate } };
 }
 
 export interface Dados {

@@ -13,7 +13,7 @@ import { Aviso, Badge, Button, Campo, Card, cn, Data, Dinheiro, Folha, Money, Nu
 
 const DESCRICOES: Record<Envelope["tipo"], string> = {
   obrigacoes: "Para as contas que você precisa pagar.",
-  negocio: "Dinheiro do negócio: estoque, materiais e operação. Não é seu salário.",
+  negocio: "Caixa de um negócio seu: mercadoria, materiais e operação. Não é seu salário.",
   pc: "Seu principal objetivo de compra.",
   reserva: "Só para imprevistos reais. Não conta como dinheiro disponível.",
   investimentos: "Dinheiro separado para aplicar.",

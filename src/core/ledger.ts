@@ -20,7 +20,9 @@ export function lancamentos(m: Movimento): Lancamento[] {
   switch (m.tipo) {
     case "receita":
       // Recebimento pendente não muda saldo nenhum (regra 4)
-      return m.status === "recebida" ? [{ contaId: m.contaId, valor: m.valor }] : [];
+      if (m.status !== "recebida") return [];
+      // Venda de um negócio: o dinheiro já nasce no caixa do negócio
+      return m.negocioId ? [{ contaId: m.contaId, valor: m.valor }, { envelopeId: m.negocioId, valor: m.valor }] : [{ contaId: m.contaId, valor: m.valor }];
     case "despesa":
       // Despesa pendente é compromisso, não saída (regra 3)
       if (m.status !== "paga" || !m.contaId) return [];
@@ -44,7 +46,7 @@ export function lancamentos(m: Movimento): Lancamento[] {
       if (m.cancelada) return [];
       const ls: Lancamento[] = [];
       // Só o que foi recebido de verdade entra no caixa (regra 4)
-      for (const r of m.recebimentos) if (!r.historico) ls.push({ contaId: r.contaId, valor: r.valor }, { envelopeId: m.envelopeId, valor: r.valor });
+      for (const r of m.recebimentos) ls.push({ contaId: r.contaId, valor: r.valor }, { envelopeId: m.envelopeId, valor: r.valor });
       if (m.despesasDiretas > 0 && m.contaDespesasId) {
         ls.push({ contaId: m.contaDespesasId, valor: -m.despesasDiretas }, { envelopeId: m.envelopeId, valor: -m.despesasDiretas });
       }

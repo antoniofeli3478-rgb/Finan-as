@@ -1,6 +1,6 @@
 # Finanças
 
-App financeiro pessoal feito para renda variável e para quem está começando a empreender. Os negócios têm apps próprios, ligados ao Finanças (hoje: **Plaquinhas NFC**). Funciona no computador e no celular, **offline**, e guarda tudo **só no seu aparelho**.
+App financeiro pessoal feito para renda variável e para quem está começando a empreender. Os seus negócios (por exemplo, as Plaquinhas NFC) ficam dentro dele, com caixa separado, e são lançados à mão. Funciona no computador e no celular, **offline**, e guarda tudo **só no seu aparelho**.
 
 - **No celular (pronto para usar):** https://antoniofeli3478-rgb.github.io/Finan-as/ → no Chrome, ⋮ → **Instalar app**.
 - **No computador:** veja "Rodar no computador" abaixo, ou abra o mesmo endereço e instale pelo Chrome/Edge.
@@ -12,7 +12,7 @@ App financeiro pessoal feito para renda variável e para quem está começando a
 | **Visão geral** | Dinheiro livre *de verdade* (já descontadas as contas próximas sem cobertura), saldo, reservado, a pagar, a receber, fatura, capital do negócio, patrimônio e "O que preciso fazer agora?" |
 | **Envelopes** | Obrigações, Negócio e estoque, Meta do PC, Reserva de emergência, Para investir, Dinheiro livre e objetivos que você criar. A soma dos envelopes + "a distribuir" é sempre igual ao dinheiro nas contas |
 | **Distribuição** | A cada recebimento, o app sugere como dividir (primeiro as contas próximas, depois capital de giro, metas e o resto livre). Você edita e confirma. Nada é movido sem você confirmar |
-| **Meus negócios** | Cada negócio é um app separado. O **Plaquinhas NFC** é ligado: o Finanças lê as vendas, o estoque e os recebimentos de lá (sem alterar nada) e calcula faturamento × recebido × lucro, o caixa do negócio, a simulação e a retirada pessoal segura |
+| **Meus negócios** | Um ou mais negócios, cada um com caixa próprio. Você lança à mão as vendas (recebidas ou a receber) e os gastos; o app mostra vendido × recebido × lucro, a evolução, a simulação e quanto dá para retirar para você sem travar o negócio |
 | **Contas e faturas** | Agenda, contas fixas (recorrências sem duplicar), cartão de crédito manual com faturas, parcelas e pagamento, contas bancárias com conferência de saldo |
 | **Metas** | PC com cenários conservador / intermediário / otimista, reserva (manual ou por meses de contas essenciais), capital de giro, investimentos |
 | **Relatórios** | Semana, mês e ano: receitas por fonte, gastos por categoria, lucro do negócio, poupança, comparação, evolução do saldo, projeções. Exporta CSV, JSON e imprime |
@@ -33,12 +33,14 @@ npm run preview      #    e serve essa versão em http://localhost:4173
 
 A versão de produção é só arquivos estáticos: funciona em qualquer servidor ou abrindo pelo `npm run preview`. Não precisa de hospedagem pública. O GitHub Pages só é usado para ter um endereço **HTTPS**, que o celular exige para instalar o app e funcionar offline.
 
-## Ligação com o Plaquinhas NFC
+## Negócios
 
-- Os dois apps ficam no mesmo endereço (`antoniofeli3478-rgb.github.io`), então, no mesmo aparelho e no mesmo navegador, o Finanças consegue **ler** o que o Plaquinhas NFC guarda (chave `placas-nfc:v1` do localStorage). Ele nunca grava nada lá.
-- Vendas, entradas de estoque e recebimentos das placas são registrados **só no app das placas**. No Finanças eles aparecem como registros somente leitura (id `nfc:...`) e atualizam sozinhos quando você volta para o Finanças.
-- Em **Meus negócios → Ligação** você escolhe a conta onde cai o dinheiro das placas e a data a partir da qual ele entra no caixa. O que foi recebido antes dessa data já está no saldo informado: conta no faturamento e no lucro, mas não entra de novo no caixa.
-- Código: `src/integracoes/nfc.ts` (testes em `tests/nfc.test.ts`). Para ligar outro negócio no futuro, o caminho é o mesmo: um conversor que lê os dados do app dele.
+- Cada negócio é um envelope do tipo "negócio": o dinheiro dele fica separado do seu.
+- **Venda do negócio** (botão + ou Meus negócios → Venda): entra na conta e no caixa daquele negócio. Venda "a receber" aparece em A receber e só entra no caixa quando você marca como recebida. Não pede distribuição, porque não é dinheiro seu ainda.
+- **Gasto do negócio** (Despesa → Negócio): sai do caixa do negócio. Compra de mercadoria é um gasto como outro qualquer.
+- **Lucro** = vendas − gastos do negócio no período. Nos relatórios, entra só o lucro (não o valor das vendas).
+- **Retirada**: tira do caixa do negócio, respeitando o capital de giro mínimo, e manda para "a distribuir".
+- O Finanças **não** se liga a outros apps. O app Plaquinhas NFC continua separado e independente.
 
 ## Backup e restauração
 

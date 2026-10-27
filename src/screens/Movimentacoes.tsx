@@ -16,7 +16,7 @@ const grupoDe = (m: Movimento): Grupo[] => {
   if (m.tipo === "despesa" || m.tipo === "cartao_compra" || m.tipo === "cartao_pagamento" || m.tipo === "estoque_compra") g.push("saidas");
   if ((m.tipo === "receita" && m.status === "pendente") || (m.tipo === "despesa" && m.status === "pendente") || (m.tipo === "estoque_compra" && m.status === "pendente")) g.push("pendentes");
   if (m.tipo === "envelope") g.push("envelopes");
-  if (m.tipo === "venda" || m.tipo === "estoque_compra" || ((m.tipo === "despesa" || m.tipo === "cartao_compra") && m.escopo === "negocio") || (m.tipo === "envelope" && m.origem === "retirada")) g.push("negocio");
+  if (m.tipo === "venda" || m.tipo === "estoque_compra" || (m.tipo === "receita" && m.negocioId) || ((m.tipo === "despesa" || m.tipo === "cartao_compra") && m.escopo === "negocio") || (m.tipo === "envelope" && m.origem === "retirada")) g.push("negocio");
   if (m.tipo === "transferencia" || m.tipo === "investimento" || m.tipo === "ajuste") g.push("outros");
   return g;
 };

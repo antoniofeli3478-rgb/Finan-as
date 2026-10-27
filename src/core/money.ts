@@ -7,7 +7,7 @@ const fmt = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" 
 
 /** 12345 -> "R$ 123,45" */
 export function brl(c: Cents): string {
-  return fmt.format(c / 100).replace(/ /g, " ");
+  return fmt.format((c || 0) / 100).replace(/ /g, " ");
 }
 
 /** 12345 -> "123,45" (para preencher campos) */

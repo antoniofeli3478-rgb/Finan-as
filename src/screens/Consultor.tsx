@@ -10,9 +10,9 @@ export function Consultor() {
   const [valor, setValor] = useState<Cents | null>(10000);
   const [forma, setForma] = useState<"avista" | "cartao">("avista");
   const [parcelas, setParcelas] = useState(1);
-  const [produtoId, setProdutoId] = useState(d.produtos[0]?.id ?? "");
-  const [qtd, setQtd] = useState(20);
-  const [custo, setCusto] = useState<Cents | null>(d.produtos[0]?.custoReferencia ?? null);
+  const negocios = d.envelopes.filter((e) => e.tipo === "negocio" && !e.arquivado);
+  const [negocioId, setNegocioId] = useState(negocios[0]?.id ?? "");
+  const [custo, setCusto] = useState<Cents | null>(30000);
   const [aberta, setAberta] = useState<string | null>("comprar");
 
   const perguntas: { id: string; titulo: string; campos?: ReactNode; resposta: () => Resposta }[] = [
@@ -27,11 +27,10 @@ export function Consultor() {
     { id: "pc", titulo: "Quanto preciso vender para comprar meu PC?", resposta: () => quantoVenderParaPC(sit, d) },
     { id: "gastando", titulo: "Estou gastando mais do que recebo?", resposta: () => gastandoMais(d, sit) },
     { id: "comprometido", titulo: "Quanto do meu dinheiro está comprometido?", resposta: () => comprometido(sit) },
-    { id: "lote", titulo: "Posso comprar um novo lote de placas?", resposta: () => podeComprarLote(sit, d, produtoId, qtd, custo ?? undefined), campos: d.produtos.length ? (
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <Campo rotulo="Produto"><Selecao value={produtoId} onChange={(v) => { setProdutoId(v); setCusto(d.produtos.find((p) => p.id === v)?.custoReferencia ?? null); }} opcoes={d.produtos.map((p) => ({ valor: p.id, rotulo: p.nome }))} /></Campo>
-        <Campo rotulo="Quantidade"><Numero value={qtd} onChange={setQtd} min={1} /></Campo>
-        <Campo rotulo="Custo por unidade"><Dinheiro value={custo} onChange={setCusto} /></Campo>
+    { id: "lote", titulo: "Posso fazer um gasto no negócio (ex.: um lote novo)?", resposta: () => podeComprarLote(sit, d, negocioId, custo ?? 0), campos: negocios.length ? (
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {negocios.length > 1 && <Campo rotulo="Negócio"><Selecao value={negocioId} onChange={setNegocioId} opcoes={negocios.map((e) => ({ valor: e.id, rotulo: e.nome }))} /></Campo>}
+        <Campo rotulo="Valor do gasto"><Dinheiro value={custo} onChange={setCusto} /></Campo>
       </div>
     ) : undefined },
     { id: "fatura", titulo: "Quanto preciso reservar para a próxima fatura?", resposta: () => reservarFatura(sit, d) },

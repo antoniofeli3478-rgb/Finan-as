@@ -1,249 +1,254 @@
-// Meus negócios: cada negócio é um app separado, ligado ao Finanças.
-// Por enquanto: Plaquinhas NFC. O Finanças lê as vendas e o estoque de lá (sem alterar nada)
-// e cuida da parte do dinheiro: caixa do negócio, lucro, retirada pessoal e simulação.
+// Meus negócios: cada negócio é um envelope do tipo "negocio", com caixa próprio.
+// Tudo é lançado à mão: vendas (receitas do negócio), gastos do negócio e retiradas.
+// Aqui ficam o resumo de cada um, a simulação e quanto dá para tirar para você.
 
 import { useMemo, useState } from "react";
-import { Boxes, ExternalLink, Link2, Nfc, Plus } from "lucide-react";
-import { addDias, br, inicioSemana, mesDe, nomeMesCurto, anoDe } from "../core/dates";
+import { BriefcaseBusiness, Plus, ShoppingBag, Wallet, Receipt } from "lucide-react";
+import { addDias, anoDe, br, inicioSemana, mesDe, nomeMesCurto } from "../core/dates";
 import { brl, type Cents } from "../core/money";
-import { disponivelParaRetirada, indicadores, ritmoVendas, serieMensal, serieSemanal, simular } from "../core/negocio";
+import { disponivelParaRetirada, indicadores, serieMensal, serieSemanal, simular } from "../core/negocio";
 import { ordenar } from "../core/ledger";
+import type { Envelope, Movimento } from "../core/types";
 import { useApp } from "../app/store";
 import { useAcoes } from "../app/acoes";
 import { ir } from "../app/rotas";
 import { db } from "../data/db";
-import { PREFIXO, URL_APP_NFC } from "../integracoes/nfc";
+import { novoId } from "../data/repo";
 import { Barras } from "../ui/graficos";
-import { Aviso, Badge, Button, Campo, Card, Chips, Data, Dinheiro, Interruptor, Money, Numero, Secao, Segmentos, Selecao, Stat, Vazio, useUi } from "../ui/ui";
+import { Aviso, Badge, Button, Campo, Card, Chips, Dinheiro, Folha, Money, Numero, Secao, Segmentos, Stat, Texto, Vazio, useUi } from "../ui/ui";
 
-type Aba = "nfc" | "ligacao" | "simulacao" | "retirada";
+type Aba = "resumo" | "simulacao" | "retirada" | "ajustes";
 
-export function MeusNegocios({ aba: abaRota }: { aba: string }) {
-  if (!abaRota) return <Lista />;
-  const aba = (["nfc", "ligacao", "simulacao", "retirada"].includes(abaRota) ? abaRota : "nfc") as Aba;
+const CORES = ["#5aa9e6", "#e07a5f", "#81b29a", "#c77dff", "#f2a65a", "#4ecdc4"];
+
+function Icone({ e, size = 44 }: { e: Envelope; size?: number }) {
+  return <span className="grid shrink-0 place-items-center rounded-xl text-white" style={{ width: size, height: size, background: e.cor }}><BriefcaseBusiness size={size / 2} /></span>;
+}
+
+export function MeusNegocios({ aba: id }: { aba: string }) {
+  const { d } = useApp();
+  const negocio = d.envelopes.find((e) => e.id === id && e.tipo === "negocio");
+  if (!negocio) return <Lista />;
+  return <Detalhe n={negocio} />;
+}
+
+/** Movimentações que mexem no caixa de um negócio. */
+function doNegocio(m: Movimento, id: string) {
+  if (m.tipo === "receita") return m.negocioId === id;
+  if (m.tipo === "despesa") return m.envelopeId === id;
+  if (m.tipo === "envelope") return m.itens.some((i) => i.envelopeId === id);
+  return false;
+}
+
+function Lista() {
+  const { d, sit, hoje } = useApp();
+  const ac = useAcoes();
+  const [novo, setNovo] = useState(false);
+  const negocios = d.envelopes.filter((e) => e.tipo === "negocio" && !e.arquivado).sort((a, b) => a.ordem - b.ordem);
+  const k = mesDe(hoje);
+  return (
+    <div className="flex flex-col gap-5">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="font-display text-[28px] font-semibold tracking-tight">Meus negócios</h1>
+          <p className="text-[14px] text-muted">O dinheiro de cada negócio fica separado do seu. Lance as vendas e os gastos à mão; para usar o lucro com você, faça uma retirada.</p>
+        </div>
+        <Button variante="outline" onClick={() => setNovo(true)}><Plus size={16} />Novo negócio</Button>
+      </header>
+      {!negocios.length && <Vazio titulo="Nenhum negócio ainda" icone={<BriefcaseBusiness />} acao={<Button onClick={() => setNovo(true)}>Criar meu negócio</Button>}>Por exemplo: Plaquinhas NFC, revenda, um serviço que você presta.</Vazio>}
+      {negocios.map((n) => <CartaoNegocio key={n.id} n={n} ini={`${k}-01`} fim={`${k}-31`} />)}
+      {negocios.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => ac.nova({ tipo: "venda_negocio" })}><ShoppingBag size={16} />Registrar venda</Button>
+          <Button variante="soft" onClick={() => ac.nova({ tipo: "despesa", negocioId: negocios[0].id })}><Receipt size={16} />Gasto do negócio</Button>
+        </div>
+      )}
+      <p className="text-[12.5px] text-muted">Caixa de todos os negócios: {brl(sit.capitalNegocio.caixa)} · a receber {brl(sit.capitalNegocio.aReceber)}.</p>
+      {novo && <NovoNegocio onFechar={() => setNovo(false)} />}
+    </div>
+  );
+}
+
+function CartaoNegocio({ n, ini, fim }: { n: Envelope; ini: string; fim: string }) {
+  const { d, sit } = useApp();
+  const x = useMemo(() => indicadores(d, sit, ini, fim, n.id), [d, sit, ini, fim, n.id]);
+  const aReceber = sit.aReceber.filter((r) => r.escopo === "negocio" && (d.movimentos.find((m) => m.id === r.movId) as { negocioId?: string } | undefined)?.negocioId === n.id).reduce((a, r) => a + r.valor, 0);
+  return (
+    <Card className="flex flex-col gap-4 p-4 sm:p-5">
+      <button onClick={() => ir("negocios", n.id)} className="flex items-center gap-3 text-left">
+        <Icone e={n} />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate font-display text-[19px] font-semibold">{n.nome}</span>
+          <span className="block text-[13px] text-muted">{x.vendas} venda(s) este mês</span>
+        </span>
+        <span className="text-[13px] font-semibold text-accent">Abrir →</span>
+      </button>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <Stat rotulo="Vendido este mês" valor={<Money c={x.faturamento} />} />
+        <Stat rotulo="Lucro do mês" valor={<Money c={x.lucroLiquido} />} tom={x.lucroLiquido < 0 ? "bad" : undefined} dica="vendas − gastos" />
+        <Stat rotulo="Caixa do negócio" valor={<Money c={sit.saldoEnv(n)} />} />
+        <Stat rotulo="A receber" valor={<Money c={aReceber} />} />
+      </div>
+    </Card>
+  );
+}
+
+function NovoNegocio({ onFechar }: { onFechar: () => void }) {
+  const { d } = useApp();
+  const { toast } = useUi();
+  const [nome, setNome] = useState("");
+  const [minimo, setMinimo] = useState<Cents | null>(null);
+  const salvar = async () => {
+    if (!nome.trim()) { toast("Dê um nome ao negócio.", true); return; }
+    const id = novoId();
+    const qtd = d.envelopes.filter((e) => e.tipo === "negocio").length;
+    await db().envelopes.put({ id, nome: nome.trim(), tipo: "negocio", cor: CORES[qtd % CORES.length], meta: null, minimo: minimo ?? 0, arquivado: false, ordem: Math.max(0, ...d.envelopes.map((e) => e.ordem)) + 1 });
+    toast(`${nome.trim()} criado`);
+    onFechar();
+    ir("negocios", id);
+  };
+  return (
+    <Folha aberta onFechar={onFechar} titulo="Novo negócio" rodape={<Button className="w-full" onClick={salvar}>Criar</Button>}>
+      <div className="flex flex-col gap-4">
+        <Campo rotulo="Nome"><Texto value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Plaquinhas NFC" maxLength={60} autoFocus /></Campo>
+        <Campo rotulo="Capital de giro mínimo" dica="Opcional. O dinheiro que nunca deve sair do negócio (ex.: para o próximo lote)."><Dinheiro value={minimo} onChange={setMinimo} /></Campo>
+        <Aviso tom="info">O negócio começa com caixa zero. Se já tem dinheiro separado para ele, use "Aporte em objetivo" para mover do seu dinheiro para o negócio.</Aviso>
+      </div>
+    </Folha>
+  );
+}
+
+function Detalhe({ n }: { n: Envelope }) {
+  const ac = useAcoes();
+  const [aba, setAba] = useState<Aba>("resumo");
   return (
     <div className="flex flex-col gap-5">
       <button className="self-start text-[13px] font-semibold text-accent" onClick={() => ir("negocios")}>← Meus negócios</button>
       <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3"><IconeNfc /><h1 className="font-display text-[26px] font-semibold tracking-tight">Plaquinhas NFC</h1></div>
-        <a href={URL_APP_NFC} className="inline-flex h-10 items-center gap-2 rounded-xl bg-accent px-4 text-[14px] font-semibold text-accent-ink"><ExternalLink size={16} />Abrir o app</a>
+        <div className="flex min-w-0 items-center gap-3"><Icone e={n} /><h1 className="truncate font-display text-[26px] font-semibold tracking-tight">{n.nome}</h1>{n.arquivado && <Badge>arquivado</Badge>}</div>
       </header>
-      <Chips value={aba} onChange={(v) => ir("negocios", v)} opcoes={[{ valor: "nfc", rotulo: "Resumo" }, { valor: "ligacao", rotulo: "Ligação" }, { valor: "simulacao", rotulo: "Simulação" }, { valor: "retirada", rotulo: "Retirada pessoal" }]} />
-      {aba === "nfc" && <Resumo />}
-      {aba === "ligacao" && <Ligacao />}
-      {aba === "simulacao" && <Simulacao />}
-      {aba === "retirada" && <Retirada />}
+      <div className="grid grid-cols-3 gap-2">
+        <Button onClick={() => ac.nova({ tipo: "venda_negocio", negocioId: n.id })}><ShoppingBag size={16} />Venda</Button>
+        <Button variante="soft" onClick={() => ac.nova({ tipo: "despesa", negocioId: n.id })}><Receipt size={16} />Gasto</Button>
+        <Button variante="outline" onClick={() => ac.nova({ tipo: "retirada", negocioId: n.id })}><Wallet size={16} />Retirada</Button>
+      </div>
+      <Chips value={aba} onChange={setAba} opcoes={[{ valor: "resumo", rotulo: "Resumo" }, { valor: "simulacao", rotulo: "Simulação" }, { valor: "retirada", rotulo: "Retirada pessoal" }, { valor: "ajustes", rotulo: "Ajustes" }]} />
+      {aba === "resumo" && <Resumo n={n} />}
+      {aba === "simulacao" && <Simulacao n={n} />}
+      {aba === "retirada" && <Retirada n={n} />}
+      {aba === "ajustes" && <Ajustes n={n} />}
     </div>
   );
 }
 
-function IconeNfc() {
-  return <span className="grid h-11 w-11 place-items-center rounded-xl text-white" style={{ background: "linear-gradient(135deg,#4a68ff,#1f35c9)" }}><Nfc size={22} /></span>;
-}
-
-function Lista() {
-  const { d, sit, nfc, hoje, modo } = useApp();
-  const lig = d.config.negocios?.nfc;
-  const k = mesDe(hoje);
-  const x = useMemo(() => indicadores(d, sit, `${k}-01`, `${k}-31`), [d, sit, k]);
-  const emEstoque = nfc.estoque.reduce((a, e) => a + e.emEstoque, 0);
-  const naLoja = nfc.estoque.reduce((a, e) => a + e.naLoja, 0);
-  return (
-    <div className="flex flex-col gap-5">
-      <header>
-        <h1 className="font-display text-[28px] font-semibold tracking-tight">Meus negócios</h1>
-        <p className="text-[14px] text-muted">Cada negócio tem o próprio app. Aqui o Finanças junta o dinheiro deles com o seu: caixa do negócio, lucro e quanto dá para você tirar.</p>
-      </header>
-      <Card className="flex flex-col gap-4 p-4 sm:p-5">
-        <button onClick={() => ir("negocios", "nfc")} className="flex items-center gap-3 text-left">
-          <IconeNfc />
-          <span className="min-w-0 flex-1">
-            <span className="flex items-center gap-2"><span className="font-display text-[19px] font-semibold">Plaquinhas NFC</span>
-              {modo === "demo" ? <Badge>demonstração</Badge> : lig?.ativo ? <Badge tom="good"><Link2 size={12} />ligado</Badge> : nfc.encontrado ? <Badge tom="warn">dados encontrados</Badge> : <Badge>sem dados neste aparelho</Badge>}</span>
-            <span className="block text-[13px] text-muted">{nfc.encontrado ? `${nfc.registros} registros lidos do app` : modo === "demo" ? "Dados fictícios" : "Abra o app das placas neste mesmo aparelho e navegador"}</span>
-          </span>
-        </button>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <Stat rotulo="Faturado este mês" valor={<Money c={x.faturamento} />} dica={`${x.unidades} placa(s)`} />
-          <Stat rotulo="Lucro líquido do mês" valor={<Money c={x.lucroLiquido} />} tom={x.lucroLiquido < 0 ? "bad" : undefined} />
-          <Stat rotulo="Caixa do negócio" valor={<Money c={sit.capitalNegocio.caixa} />} dica={`a receber ${brl(sit.capitalNegocio.aReceber)}`} />
-          <Stat rotulo="Placas" valor={String(nfc.encontrado ? emEstoque : Object.values(sit.estoque.porProduto).reduce((a, e) => a + Math.max(0, e.qtd), 0))} dica={naLoja ? `em estoque · mais ${naLoja} nas lojas` : "em estoque"} />
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <a href={URL_APP_NFC} className="inline-flex h-11 items-center gap-2 rounded-xl bg-accent px-4 text-[15px] font-semibold text-accent-ink"><ExternalLink size={17} />Abrir Plaquinhas NFC</a>
-          <Button variante="outline" onClick={() => ir("negocios", "nfc")}>Ver no Finanças</Button>
-          {!lig?.ativo && modo === "real" && <Button variante="soft" onClick={() => ir("negocios", "ligacao")}><Link2 size={16} />Ligar ao meu caixa</Button>}
-        </div>
-      </Card>
-      <Vazio titulo="Outros negócios" icone={<Plus />}>Quando você tiver outra fonte de renda com app próprio, ela entra aqui do mesmo jeito.</Vazio>
-    </div>
-  );
-}
-
-function Ligacao() {
-  const { d, sit, nfc, hoje, modo } = useApp();
-  const { toast } = useUi();
-  const atual = d.config.negocios?.nfc;
-  const [ativo, setAtivo] = useState(atual?.ativo ?? true);
-  const [contaId, setContaId] = useState(atual?.contaId ?? d.contas.find((c) => !c.arquivada)?.id ?? "");
-  const [desde, setDesde] = useState(atual?.desde ?? hoje);
-  const salvar = async () => {
-    await db().config.update("cfg", { negocios: { ...d.config.negocios, nfc: { ativo, contaId, desde } } });
-    toast(ativo ? "Plaquinhas NFC ligado ao seu caixa" : "Ligação desativada");
-  };
-  const ultimas = useMemo(() => ordenar(d.movimentos.filter((m) => m.id.startsWith(PREFIXO))).reverse().slice(0, 5), [d.movimentos]);
-  if (modo === "demo") return <Aviso tom="info">No modo demonstração, o Finanças não lê o app das placas. Volte aos seus dados para fazer a ligação.</Aviso>;
-  return (
-    <div className="flex flex-col gap-5">
-      <Card className="flex flex-col gap-3 p-4">
-        <div className="font-semibold">O que o Finanças encontrou neste aparelho</div>
-        {nfc.encontrado ? (
-          <>
-            <div className="text-[14px] text-muted">{nfc.registros} registros do Plaquinhas NFC ({nfc.vendas} vendas). Eles continuam no app das placas: o Finanças só lê.</div>
-            <div className="flex flex-col divide-y divide-line rounded-xl border border-line text-[14px]">
-              {nfc.estoque.map((e) => <div key={e.tipoId} className="flex justify-between px-3 py-2"><span>{e.nome}</span><span className="text-muted">{e.emEstoque} em estoque{e.naLoja ? ` · ${e.naLoja} nas lojas` : ""} · {e.vendidas} vendidas</span></div>)}
-            </div>
-          </>
-        ) : (
-          <Aviso tom={nfc.erro ? "bad" : "warn"}>{nfc.erro ?? "Nenhum dado do Plaquinhas NFC neste navegador. Os dois apps precisam estar no mesmo aparelho e no mesmo navegador (Chrome). Abra o app das placas uma vez e volte aqui."}</Aviso>
-        )}
-        <a href={URL_APP_NFC} className="self-start text-[14px] font-semibold text-accent">Abrir Plaquinhas NFC →</a>
-      </Card>
-
-      <Card className="flex flex-col gap-4 p-4">
-        <label className="flex items-center justify-between gap-3"><span><b>Dinheiro das placas entra no meu caixa</b><br /><span className="text-[13px] text-muted">Vendas recebidas viram dinheiro no envelope do negócio; compras de estoque com custo saem dele.</span></span><Interruptor ligado={ativo} onChange={setAtivo} rotulo="Ligar ao caixa" /></label>
-        {ativo && (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Campo rotulo="Conta onde cai o dinheiro das placas"><Selecao value={contaId} onChange={setContaId} opcoes={d.contas.filter((c) => !c.arquivada).map((c) => ({ valor: c.id, rotulo: c.nome }))} /></Campo>
-            <Campo rotulo="Contar a partir de" dica="O que entrou antes desta data já está no saldo das suas contas: conta no faturamento e no lucro, mas não entra de novo no caixa."><Data value={desde} onChange={setDesde} /></Campo>
-          </div>
-        )}
-        <Button onClick={salvar}>Salvar ligação</Button>
-        <Aviso tom="info">Registre vendas, entradas de estoque e recebimentos só no app das placas. Aqui no Finanças eles aparecem sozinhos (somente leitura). Gastos do negócio que o app das placas não tem, como transporte, você registra aqui como despesa do negócio.</Aviso>
-      </Card>
-
-      {ultimas.length > 0 && (
-        <Secao titulo="Últimos registros lidos">
-          <Card className="divide-y divide-line">
-            {ultimas.map((m) => <div key={m.id} className="flex justify-between gap-3 px-4 py-2.5 text-[14px]"><span className="min-w-0 truncate">{br(m.data)} · {m.descricao}</span><Money c={m.tipo === "venda" ? m.qtd * m.precoUnit - m.desconto : m.tipo === "estoque_compra" ? -m.valor : 0} className="font-semibold" /></div>)}
-          </Card>
-        </Secao>
-      )}
-      <p className="text-[12.5px] text-muted">Envelope do negócio hoje: {brl(sit.saldoEnv(sit.env.negocio))}.</p>
-    </div>
-  );
-}
-
-function Resumo() {
-  const { d, sit, hoje, nfc } = useApp();
+function Resumo({ n }: { n: Envelope }) {
+  const { d, sit, hoje } = useApp();
+  const ac = useAcoes();
   const [per, setPer] = useState<"semana" | "mes" | "ano">("mes");
   const ini = per === "semana" ? inicioSemana(hoje) : per === "mes" ? `${mesDe(hoje)}-01` : `${anoDe(hoje)}-01-01`;
-  const x = useMemo(() => indicadores(d, sit, ini, per === "semana" ? addDias(ini, 6) : hoje), [d, sit, ini, per, hoje]);
-  const semanal = useMemo(() => serieSemanal(d, sit, hoje, 8), [d, sit, hoje]);
-  const mensal = useMemo(() => serieMensal(d, sit, hoje, 6), [d, sit, hoje]);
+  const x = useMemo(() => indicadores(d, sit, ini, per === "semana" ? addDias(ini, 6) : hoje, n.id), [d, sit, ini, per, hoje, n.id]);
+  const semanal = useMemo(() => serieSemanal(d, sit, hoje, 8, n.id), [d, sit, hoje, n.id]);
+  const mensal = useMemo(() => serieMensal(d, sit, hoje, 6, n.id), [d, sit, hoje, n.id]);
   const [serie, setSerie] = useState<"semanas" | "meses">("semanas");
-  const ret = disponivelParaRetirada(d, sit);
-  if (!d.produtos.length) return <Vazio titulo="Nenhuma venda ou estoque encontrado" icone={<Boxes />} acao={<Button onClick={() => ir("negocios", "ligacao")}>Ver a ligação</Button>}>Quando o Plaquinhas NFC tiver registros neste aparelho, o faturamento, o custo e o lucro aparecem aqui sozinhos.</Vazio>;
+  const ret = disponivelParaRetirada(d, sit, n.id);
+  const movs = useMemo(() => ordenar(d.movimentos.filter((m) => doNegocio(m, n.id))).reverse(), [d.movimentos, n.id]);
+  const [mostrar, setMostrar] = useState(15);
+  const valorNoCaixa = (m: Movimento): Cents => {
+    if (m.tipo === "receita") return m.valor;
+    if (m.tipo === "despesa") return -m.valor;
+    if (m.tipo === "envelope") return m.itens.filter((i) => i.envelopeId === n.id).reduce((a, i) => a + i.valor, 0);
+    return 0;
+  };
+  const rotulo = (m: Movimento) => m.tipo === "receita" ? (m.status === "pendente" ? "Venda · a receber" : "Venda") : m.tipo === "despesa" ? (m.status === "pendente" ? "Gasto · a pagar" : "Gasto") : m.tipo === "envelope" && m.origem === "retirada" ? "Retirada" : "Movimento de envelope";
   return (
     <div className="flex flex-col gap-5">
       <Segmentos value={per} onChange={setPer} opcoes={[{ valor: "semana", rotulo: "Esta semana" }, { valor: "mes", rotulo: "Este mês" }, { valor: "ano", rotulo: "Este ano" }]} />
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <Stat rotulo="Faturamento" valor={<Money c={x.faturamento} />} dica={`${x.vendas} venda(s) · ${x.unidades} placa(s)`} />
-        <Stat rotulo="Recebido de fato" valor={<Money c={x.recebido} />} dica="entrou no caixa no período" />
-        <Stat rotulo="Custo das placas (CMV)" valor={<Money c={x.cmv} />} dica={x.cmvEstimado ? "parte estimada pelo custo de referência" : "pelo custo médio do estoque"} />
-        <Stat rotulo="Lucro bruto" valor={<Money c={x.lucroBruto} />} dica="faturamento − custo" />
-        <Stat rotulo="Despesas do negócio" valor={<Money c={x.despesasOperacionais} />} dica="transporte, embalagem, taxas" />
-        <Stat rotulo="Lucro líquido" valor={<Money c={x.lucroLiquido} />} tom={x.lucroLiquido < 0 ? "bad" : x.lucroLiquido > 0 ? "good" : undefined} dica={x.margem != null ? `margem de ${Math.round(x.margem * 100)}%` : "sem vendas"} />
-        <Stat rotulo="A receber (total)" valor={<Money c={sit.capitalNegocio.aReceber} />} dica="vendas ainda não pagas" />
-        <Stat rotulo="Compras de estoque" valor={<Money c={x.comprasEstoque} />} dica="não é despesa: vira estoque" />
+        <Stat rotulo="Vendido" valor={<Money c={x.faturamento} />} dica={`${x.vendas} venda(s)`} />
+        <Stat rotulo="Recebido de fato" valor={<Money c={x.recebido} />} dica="já entrou no caixa" />
+        <Stat rotulo="Gastos do negócio" valor={<Money c={x.despesasOperacionais} />} dica="mercadoria, transporte, taxas" />
+        <Stat rotulo="Lucro" valor={<Money c={x.lucroLiquido} />} tom={x.lucroLiquido < 0 ? "bad" : x.lucroLiquido > 0 ? "good" : undefined} dica={x.margem != null ? `margem de ${Math.round(x.margem * 100)}%` : "sem vendas"} />
       </div>
-      <Aviso tom="info">Faturamento é o que você vendeu. Recebido é o que entrou. Lucro é o que sobra depois do custo das placas e das despesas. Só o recebido está no caixa.</Aviso>
+      <Aviso tom="info">Vendido é tudo o que você vendeu, mesmo o que ainda vão te pagar. Lucro é vendido menos os gastos do negócio no período. Só o recebido está no caixa.</Aviso>
 
       <Secao titulo="Evolução" acao={<Segmentos className="w-48" value={serie} onChange={setSerie} opcoes={[{ valor: "semanas", rotulo: "Semanas" }, { valor: "meses", rotulo: "Meses" }]} />}>
         <Card className="p-4">
-          <Barras dados={serie === "semanas" ? semanal.map((s) => ({ rotulo: br(s.ini).slice(0, 5), valores: [s.faturamento, s.lucro] })) : mensal.map((s) => ({ rotulo: nomeMesCurto(s.key), valores: [s.faturamento, s.lucro] }))} series={[{ nome: "Faturamento", cor: "#5aa9e6" }, { nome: "Lucro líquido", cor: "var(--good)" }]} />
+          <Barras dados={serie === "semanas" ? semanal.map((s) => ({ rotulo: br(s.ini).slice(0, 5), valores: [s.faturamento, s.lucro] })) : mensal.map((s) => ({ rotulo: nomeMesCurto(s.key), valores: [s.faturamento, s.lucro] }))} series={[{ nome: "Vendido", cor: "#5aa9e6" }, { nome: "Lucro", cor: "var(--good)" }]} />
         </Card>
       </Secao>
 
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-        <Secao titulo="Capital do negócio">
-          <Card className="flex flex-col gap-2 p-4 text-[14px]">
-            <div className="flex justify-between"><span className="text-muted">Caixa (envelope do negócio)</span><Money c={sit.capitalNegocio.caixa} className="font-semibold" /></div>
-            <div className="flex justify-between"><span className="text-muted">Estoque a preço de custo</span><Money c={sit.capitalNegocio.estoque} className="font-semibold" /></div>
-            <div className="flex justify-between border-t border-line pt-2"><span className="font-semibold">Total investido no negócio</span><Money c={sit.capitalNegocio.total} className="font-semibold" /></div>
-            <div className="flex justify-between"><span className="text-muted">Para repor o estoque mínimo</span><Money c={sit.reposicao.total} className="font-semibold" /></div>
-            <div className="flex justify-between"><span className="text-muted">Pode retirar para você</span><Money c={ret.valor} className="font-semibold text-accent" /></div>
-            {ret.provisorio.length > 0 && <div className="text-[12.5px] text-warn">Estimativa provisória: {ret.provisorio.join(" ")}</div>}
-          </Card>
-        </Secao>
-        <Secao titulo="Por tipo de placa no período">
+      <Secao titulo="Dinheiro do negócio">
+        <Card className="flex flex-col gap-2 p-4 text-[14px]">
+          <div className="flex justify-between"><span className="text-muted">Caixa</span><Money c={sit.saldoEnv(n)} className="font-semibold" /></div>
+          <div className="flex justify-between"><span className="text-muted">Contas do negócio a pagar</span><Money c={-ret.contas} className="font-semibold" /></div>
+          <div className="flex justify-between"><span className="text-muted">Capital de giro mínimo</span><Money c={-ret.minimo} className="font-semibold" /></div>
+          <div className="flex justify-between border-t border-line pt-2"><span className="font-semibold">Pode retirar para você</span><Money c={ret.valor} className="font-semibold text-accent" /></div>
+        </Card>
+      </Secao>
+
+      <Secao titulo="Lançamentos">
+        {movs.length ? (
           <Card className="divide-y divide-line">
-            {d.produtos.map((p) => { const pp = x.porProduto[p.id]; return (
-              <div key={p.id} className="flex items-center justify-between gap-3 px-4 py-3 text-[14px]">
-                <span className="min-w-0"><span className="block truncate font-semibold">{p.nome}</span><span className="text-[12.5px] text-muted">{pp?.unidades ?? 0} vendida(s) · {nfc.estoque.find((e) => PREFIXO + e.tipoId === p.id)?.emEstoque ?? sit.estoque.porProduto[p.id]?.qtd ?? 0} em estoque</span></span>
-                <span className="text-right"><Money c={pp?.faturamento ?? 0} className="block font-semibold" /><span className="text-[12.5px] text-muted">lucro bruto <Money c={pp?.lucroBruto ?? 0} /></span></span>
-              </div>
-            ); })}
+            {movs.slice(0, mostrar).map((m) => (
+              <button key={m.id} onClick={() => ac.nova({ editId: m.id })} className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-[14px]">
+                <span className="min-w-0"><span className="block truncate font-semibold">{m.descricao}</span><span className="text-[12.5px] text-muted">{br(m.data)} · {rotulo(m)}</span></span>
+                <Money c={valorNoCaixa(m)} className="shrink-0 font-semibold" />
+              </button>
+            ))}
+            {movs.length > mostrar && <button className="w-full px-4 py-3 text-[13.5px] font-semibold text-accent" onClick={() => setMostrar((k) => k + 30)}>Ver mais</button>}
           </Card>
-        </Secao>
-      </div>
+        ) : <Vazio titulo="Nada lançado ainda" icone={<ShoppingBag />}>Use os botões Venda e Gasto lá em cima. Tudo o que você lançar aparece aqui.</Vazio>}
+      </Secao>
     </div>
   );
 }
 
-function Simulacao() {
+function Simulacao({ n }: { n: Envelope }) {
   const { d, sit, hoje } = useApp();
-  const ritmo = ritmoVendas(d, hoje);
-  const p = d.produtos.find((x) => x.ativo) ?? d.produtos[0];
+  // Base real: últimas 8 semanas deste negócio
+  const base = useMemo(() => indicadores(d, sit, addDias(inicioSemana(hoje), -49), hoje, n.id), [d, sit, hoje, n.id]);
   const pc = sit.metas.find((m) => m.envelope.tipo === "pc");
-  const estNfc = d.config.estrategias.find((e) => e.id === d.config.fontes.find((f) => f.id === "nfc")?.estrategiaId);
-  const pctPC = estNfc?.regras.find((r) => r.envelopeId === pc?.envelope.id)?.valor ?? 40;
-  const [u, setU] = useState(Math.max(1, Math.round(ritmo?.unidadesSemana ?? 5)));
-  const [preco, setPreco] = useState<Cents | null>(ritmo?.precoMedio || p?.precoVenda || 8000);
-  const [custo, setCusto] = useState<Cents | null>(p ? (sit.estoque.porProduto[p.id]?.custoMedio || p.custoReferencia) : 1400);
-  const [adic, setAdic] = useState<Cents | null>(p?.custoAdicional ?? 0);
-  const [desp, setDesp] = useState<Cents | null>(3000);
+  const estNeg = d.config.estrategias.find((e) => e.id === d.config.fontes.find((f) => f.id === "nfc")?.estrategiaId);
+  const pctPC = estNeg?.regras.find((r) => r.envelopeId === pc?.envelope.id)?.valor ?? 40;
+  const [u, setU] = useState(Math.max(1, Math.round(base.vendas / 8) || 5));
+  const [preco, setPreco] = useState<Cents | null>(base.vendas ? Math.round(base.faturamento / base.vendas) : 8000);
+  const [custo, setCusto] = useState<Cents | null>(0);
+  const [desp, setDesp] = useState<Cents | null>(base.vendas ? Math.round(base.despesasOperacionais / 8) : 3000);
   const [semanas, setSemanas] = useState(4);
   const [prazo, setPrazo] = useState(0);
   const [pct, setPct] = useState(pctPC);
-  const estoqueAtual = Object.values(sit.estoque.porProduto).reduce((a, e) => a + Math.max(0, e.qtd), 0);
-  const r = simular({ unidadesSemana: u, preco: preco ?? 0, custoUnit: custo ?? 0, custoAdicional: adic ?? 0, despesasSemana: desp ?? 0, semanas, prazoRecebimentoDias: prazo, pctPatrimonio: pct, estoqueAtual, faltaMeta: pc?.falta ?? null });
+  const r = simular({ unidadesSemana: u, preco: preco ?? 0, custoUnit: custo ?? 0, custoAdicional: 0, despesasSemana: desp ?? 0, semanas, prazoRecebimentoDias: prazo, pctPatrimonio: pct, estoqueAtual: null, faltaMeta: pc?.falta ?? null });
   return (
     <div className="flex flex-col gap-5">
-      <p className="text-[14px] text-muted">"Se eu vender X placas por semana, quanto gero de lucro e quanto vai para o meu patrimônio?" Os campos já vêm com seus números reais{ritmo ? ` (você vendeu em média ${ritmo.unidadesSemana.toFixed(1).replace(".", ",")} por semana)` : ""}. Mude à vontade.</p>
+      <p className="text-[14px] text-muted">"Se eu vender X por semana, quanto gero de lucro e quanto vai para o meu patrimônio?" {base.vendas ? `Os campos já vêm com a média das suas últimas 8 semanas (${(base.vendas / 8).toFixed(1).replace(".", ",")} vendas por semana).` : "Coloque os seus números."} Mude à vontade.</p>
       <Card className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-4">
-        <Campo rotulo="Placas por semana"><Numero value={u} onChange={setU} /></Campo>
-        <Campo rotulo="Preço real de venda"><Dinheiro value={preco} onChange={setPreco} /></Campo>
-        <Campo rotulo="Custo por placa"><Dinheiro value={custo} onChange={setCusto} /></Campo>
-        <Campo rotulo="Custo adicional"><Dinheiro value={adic} onChange={setAdic} /></Campo>
-        <Campo rotulo="Despesas por semana" dica="Transporte, etc."><Dinheiro value={desp} onChange={setDesp} /></Campo>
+        <Campo rotulo="Vendas por semana"><Numero value={u} onChange={setU} /></Campo>
+        <Campo rotulo="Valor médio de cada venda"><Dinheiro value={preco} onChange={setPreco} /></Campo>
+        <Campo rotulo="Custo de cada venda" dica="Mercadoria de cada uma"><Dinheiro value={custo} onChange={setCusto} /></Campo>
+        <Campo rotulo="Gastos por semana" dica="Transporte, etc."><Dinheiro value={desp} onChange={setDesp} /></Campo>
         <Campo rotulo="Prazo para receber (dias)"><Numero value={prazo} onChange={setPrazo} /></Campo>
-        <Campo rotulo="Semanas simuladas"><Numero value={semanas} onChange={(n) => setSemanas(Math.max(1, Math.min(52, n)))} /></Campo>
-        <Campo rotulo="% do lucro para o patrimônio"><Numero value={pct} onChange={(n) => setPct(Math.max(0, Math.min(100, n)))} /></Campo>
+        <Campo rotulo="Semanas simuladas"><Numero value={semanas} onChange={(k) => setSemanas(Math.max(1, Math.min(52, k)))} /></Campo>
+        <Campo rotulo="% do lucro para o patrimônio"><Numero value={pct} onChange={(k) => setPct(Math.max(0, Math.min(100, k)))} /></Campo>
       </Card>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <Stat rotulo="Lucro por placa" valor={<Money c={r.margemUnit} />} tom={r.margemUnit < 0 ? "bad" : undefined} />
-        <Stat rotulo="Lucro por semana" valor={<Money c={r.lucroSemana} />} dica="depois das despesas" tom={r.lucroSemana < 0 ? "bad" : "good"} />
-        <Stat rotulo={`Lucro em ${semanas} semana(s)`} valor={<Money c={r.total.lucro} />} dica={`faturando ${brl(r.total.faturamento)}`} />
+        <Stat rotulo="Lucro por venda" valor={<Money c={r.margemUnit} />} tom={r.margemUnit < 0 ? "bad" : undefined} />
+        <Stat rotulo="Lucro por semana" valor={<Money c={r.lucroSemana} />} dica="depois dos gastos" tom={r.lucroSemana < 0 ? "bad" : "good"} />
+        <Stat rotulo={`Lucro em ${semanas} semana(s)`} valor={<Money c={r.total.lucro} />} dica={`vendendo ${brl(r.total.faturamento)}`} />
         <Stat rotulo="Para o patrimônio" valor={<Money c={r.total.paraPatrimonio} />} dica={`${brl(r.paraPatrimonioSemana)} por semana`} tom="accent" />
-        <Stat rotulo="Gasto para repor estoque" valor={<Money c={r.total.reposicao} />} dica="no período" />
         <Stat rotulo="Capital de giro necessário" valor={<Money c={r.capitalDeGiro} />} dica="para não parar de vender" />
-        <Stat rotulo="Estoque atual dura" valor={r.estoqueDuraSemanas == null ? "—" : `${r.estoqueDuraSemanas} sem.`} dica={`${estoqueAtual} placa(s) em estoque`} />
         <Stat rotulo="PC nesse ritmo" valor={r.semanasMeta == null ? "—" : `${r.semanasMeta} sem.`} dica={pc?.meta ? `faltam ${brl(pc.falta)}` : "defina a meta do PC"} />
       </div>
       {r.avisos.map((a) => <Aviso key={a} tom="warn">{a}</Aviso>)}
-      <p className="text-[12.5px] text-muted">Premissas: preço, custo e despesas constantes; todo o lucro do período é retirado e {pct}% dele vai para o patrimônio. É uma conta, não uma promessa: semanas fracas acontecem.</p>
+      <p className="text-[12.5px] text-muted">Premissas: valores constantes; todo o lucro do período é retirado e {pct}% dele vai para o patrimônio. É uma conta, não uma promessa: semanas fracas acontecem.</p>
     </div>
   );
 }
 
-function Retirada() {
+function Retirada({ n }: { n: Envelope }) {
   const { d, sit } = useApp();
   const ac = useAcoes();
-  const r = disponivelParaRetirada(d, sit);
-  const retiradas = ordenar(d.movimentos).reverse().filter((m) => m.tipo === "envelope" && m.origem === "retirada").slice(0, 10);
-  const [minimo, setMinimo] = useState<Cents | null>(sit.env.negocio?.minimo ?? null);
-  const { toast } = useUi();
+  const r = disponivelParaRetirada(d, sit, n.id);
+  const retiradas = ordenar(d.movimentos).reverse().filter((m) => m.tipo === "envelope" && m.origem === "retirada" && m.itens.some((i) => i.envelopeId === n.id)).slice(0, 10);
   return (
     <div className="flex flex-col gap-5">
       <Card className="flex flex-col gap-3 p-5">
@@ -252,25 +257,47 @@ function Retirada() {
         <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-1.5 text-[14px]">
           <span className="text-muted">Caixa do negócio</span><Money c={r.caixa} className="text-right" />
           <span className="text-muted">− Contas do negócio a pagar</span><Money c={-r.contas} className="text-right" />
-          <span className="text-muted">− Reposição do estoque mínimo</span><Money c={-r.reposicao} className="text-right" />
+          {r.reposicao > 0 && <><span className="text-muted">− Reposição do estoque mínimo</span><Money c={-r.reposicao} className="text-right" /></>}
           <span className="text-muted">− Capital de giro mínimo</span><Money c={-r.minimo} className="text-right" />
         </div>
-        {r.provisorio.length > 0 && <Aviso tom="warn">Estimativa provisória: {r.provisorio.join(" ")}</Aviso>}
-        <Button onClick={() => ac.nova({ tipo: "retirada" })} disabled={r.caixa <= 0}>Fazer retirada</Button>
-        <p className="text-[12.5px] text-muted">A retirada tira dinheiro do envelope do negócio e coloca em "a distribuir". Em seguida você distribui entre contas, PC, reserva e dinheiro livre.</p>
+        {r.provisorio.length > 0 && <Aviso tom="warn">{r.provisorio.join(" ")}</Aviso>}
+        <Button onClick={() => ac.nova({ tipo: "retirada", negocioId: n.id })} disabled={r.caixa <= 0}>Fazer retirada</Button>
+        <p className="text-[12.5px] text-muted">A retirada tira dinheiro do caixa do negócio e coloca em "a distribuir". Em seguida você distribui entre contas, PC, reserva e dinheiro livre.</p>
       </Card>
-      <Secao titulo="Capital de giro mínimo">
-        <Card className="flex flex-wrap items-end gap-3 p-4">
-          <Campo rotulo="Valor que nunca deve sair do negócio" className="min-w-[200px] flex-1"><Dinheiro value={minimo} onChange={setMinimo} /></Campo>
-          <Button variante="outline" onClick={async () => { if (sit.env.negocio) { await db().envelopes.update(sit.env.negocio.id, { minimo: minimo ?? 0 }); toast("Capital de giro mínimo salvo"); } }}>Salvar</Button>
-        </Card>
-      </Secao>
       {retiradas.length > 0 && (
         <Secao titulo="Últimas retiradas">
-          <Card className="divide-y divide-line">{retiradas.map((m) => <button key={m.id} onClick={() => ac.nova({ editId: m.id })} className="flex w-full justify-between px-4 py-3 text-[14px]"><span>{br(m.data)}</span><Money c={m.tipo === "envelope" ? -m.itens[0].valor : 0} className="font-semibold" /></button>)}</Card>
+          <Card className="divide-y divide-line">{retiradas.map((m) => <button key={m.id} onClick={() => ac.nova({ editId: m.id })} className="flex w-full justify-between px-4 py-3 text-[14px]"><span>{br(m.data)}</span><Money c={m.tipo === "envelope" ? -m.itens.filter((i) => i.envelopeId === n.id).reduce((a, i) => a + i.valor, 0) : 0} className="font-semibold" /></button>)}</Card>
         </Secao>
       )}
     </div>
   );
 }
 
+function Ajustes({ n }: { n: Envelope }) {
+  const { sit } = useApp();
+  const { toast, confirmar } = useUi();
+  const [nome, setNome] = useState(n.nome);
+  const [minimo, setMinimo] = useState<Cents | null>(n.minimo ?? null);
+  const salvar = async () => {
+    if (!nome.trim()) { toast("Dê um nome ao negócio.", true); return; }
+    await db().envelopes.update(n.id, { nome: nome.trim(), minimo: minimo ?? 0 });
+    toast("Salvo");
+  };
+  const arquivar = async () => {
+    const saldo = sit.saldoEnv(n);
+    if (!(await confirmar({ titulo: n.arquivado ? "Reativar negócio?" : "Arquivar negócio?", texto: n.arquivado ? "Ele volta a aparecer na lista." : saldo ? `O caixa dele tem ${brl(saldo)}. Antes de arquivar, faça uma retirada para esse dinheiro não ficar parado. Os lançamentos continuam no histórico.` : "Ele some da lista, mas os lançamentos continuam no histórico.", botao: n.arquivado ? "Reativar" : "Arquivar" }))) return;
+    await db().envelopes.update(n.id, { arquivado: !n.arquivado });
+    toast(n.arquivado ? "Reativado" : "Arquivado");
+    if (!n.arquivado) ir("negocios");
+  };
+  return (
+    <div className="flex flex-col gap-5">
+      <Card className="flex flex-col gap-4 p-4">
+        <Campo rotulo="Nome do negócio"><Texto value={nome} onChange={(e) => setNome(e.target.value)} maxLength={60} /></Campo>
+        <Campo rotulo="Capital de giro mínimo" dica="O valor que nunca deve sair do negócio. O app não deixa a retirada sugerida passar disso."><Dinheiro value={minimo} onChange={setMinimo} /></Campo>
+        <Button onClick={salvar}>Salvar</Button>
+      </Card>
+      <Button variante="outline" onClick={arquivar}>{n.arquivado ? "Reativar negócio" : "Arquivar negócio"}</Button>
+    </div>
+  );
+}

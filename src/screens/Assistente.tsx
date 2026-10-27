@@ -1,4 +1,4 @@
-// Assistente de configuração: 8 passos, todos opcionais. Os valores do seu relato aparecem
+// Assistente de configuração: 7 passos, todos opcionais. Os valores do seu relato aparecem
 // só como sugestões editáveis. O progresso fica salvo: dá para parar e continuar depois.
 
 import { useState } from "react";
@@ -11,7 +11,7 @@ import type { Recorrencia } from "../core/types";
 import { useApp } from "../app/store";
 import { db } from "../data/db";
 import { conciliar, distribuir, gerarRecorrencias, novoId, novoMov, salvarMovimento } from "../data/repo";
-import { Aviso, Button, Campo, cn, Data, Dinheiro, Folha, Interruptor, Numero, Segmentos, Selecao, Texto, useUi } from "../ui/ui";
+import { Aviso, Button, Campo, cn, Data, Dinheiro, Folha, Interruptor, Numero, Segmentos, Texto, useUi } from "../ui/ui";
 
 const PASSOS = [
   { id: "contas", nome: "Saldos das contas" },
@@ -19,8 +19,7 @@ const PASSOS = [
   { id: "cartao", nome: "Cartão" },
   { id: "pc", nome: "Meta do PC" },
   { id: "reserva", nome: "Reserva" },
-  { id: "produtos", nome: "Plaquinhas NFC" },
-  { id: "negocio", nome: "Capital do negócio" },
+  { id: "negocio", nome: "Seu negócio" },
   { id: "prioridades", nome: "Prioridades" },
 ];
 
@@ -50,7 +49,6 @@ export function Assistente({ onFechar }: { onFechar: () => void }) {
         {passo.id === "cartao" && <PassoCartao onOk={concluir} />}
         {passo.id === "pc" && <PassoPC onOk={concluir} />}
         {passo.id === "reserva" && <PassoReserva onOk={concluir} />}
-        {passo.id === "produtos" && <PassoNfc onOk={concluir} />}
         {passo.id === "negocio" && <PassoNegocio onOk={concluir} />}
         {passo.id === "prioridades" && <PassoPrioridades onOk={concluir} />}
         <div className="flex items-center justify-between border-t border-line pt-3">
@@ -216,44 +214,23 @@ function PassoReserva({ onOk }: P) {
   );
 }
 
-function PassoNfc({ onOk }: P) {
-  const { d, nfc, hoje } = useApp();
-  const [contaId, setContaId] = useState(d.config.negocios?.nfc?.contaId ?? d.contas[0]?.id ?? "");
-  const salvar = async () => {
-    await db().config.update("cfg", { negocios: { ...d.config.negocios, nfc: { ativo: true, contaId, desde: d.config.negocios?.nfc?.desde ?? hoje } } });
-    onOk();
-  };
-  return (
-    <div className="flex flex-col gap-4">
-      <h3 className="font-display text-[20px] font-semibold">Ligar o Plaquinhas NFC</h3>
-      <p className="text-[14px] text-muted">O app das placas continua separado. O Finanças só lê as vendas e o estoque de lá, para calcular o lucro e o caixa do negócio sem você digitar nada duas vezes.</p>
-      {nfc.encontrado ? (
-        <Aviso tom="good">Encontrei {nfc.registros} registros do Plaquinhas NFC neste aparelho ({nfc.vendas} vendas). {nfc.estoque.map((e) => `${e.nome}: ${e.emEstoque} em estoque`).join(" · ")}.</Aviso>
-      ) : (
-        <Aviso tom="warn">{nfc.erro ?? "Não encontrei dados do Plaquinhas NFC neste navegador. Dá para ligar mesmo assim: quando o app das placas tiver registros neste aparelho, eles aparecem aqui."}</Aviso>
-      )}
-      <Campo rotulo="Conta onde cai o dinheiro das placas"><Selecao value={contaId} onChange={setContaId} opcoes={d.contas.filter((c) => !c.arquivada).map((c) => ({ valor: c.id, rotulo: c.nome }))} /></Campo>
-      <Aviso tom="info">O dinheiro das vendas de antes de hoje já está no saldo que você informou, então só conta no faturamento e no lucro. Daqui para frente, o que você receber pelas placas entra no envelope do negócio.</Aviso>
-      <Button onClick={salvar}>Ligar e continuar</Button>
-    </div>
-  );
-}
-
 function PassoNegocio({ onOk }: P) {
   const { sit, hoje } = useApp();
   const n = sit.env.negocio;
   const [capital, setCapital] = useState<Cents | null>(null);
+  const [nome, setNome] = useState(n?.nome ?? "Plaquinhas NFC");
   const [minimo, setMinimo] = useState<Cents | null>(n?.minimo || null);
   const salvar = async () => {
     if (!n) return onOk(false);
-    await db().envelopes.update(n.id, { minimo: minimo ?? 0 });
+    await db().envelopes.update(n.id, { nome: nome.trim() || n.nome, minimo: minimo ?? 0 });
     if (capital && capital > 0) await distribuir(db(), [{ envelopeId: n.id, valor: Math.min(capital, Math.max(0, sit.saldos.aDistribuir)) }], hoje, { descricao: "Capital inicial do negócio" });
     onOk();
   };
   return (
     <div className="flex flex-col gap-4">
-      <h3 className="font-display text-[20px] font-semibold">Dinheiro do negócio</h3>
-      <p className="text-[14px] text-muted">Do seu saldo, quanto é do negócio (para comprar o próximo lote, materiais, transporte)? Esse dinheiro fica separado do seu.</p>
+      <h3 className="font-display text-[20px] font-semibold">Seu negócio</h3>
+      <p className="text-[14px] text-muted">Vendas e gastos do negócio você registra à mão no botão +. O dinheiro dele fica separado do seu. Depois dá para criar outros negócios em Meus negócios.</p>
+      <Campo rotulo="Nome do negócio"><Texto value={nome} onChange={(e) => setNome(e.target.value)} maxLength={60} /></Campo>
       <Campo rotulo="Capital do negócio hoje" dica={`Sai do que está a distribuir (${brl(Math.max(0, sit.saldos.aDistribuir))}).`}><Dinheiro value={capital} onChange={setCapital} /></Campo>
       <Campo rotulo="Capital de giro mínimo" dica="O suficiente para um lote novo. O app avisa se uma retirada deixar o negócio abaixo disso."><Dinheiro value={minimo} onChange={setMinimo} /></Campo>
       <Button onClick={salvar}>Salvar e continuar</Button>
@@ -284,7 +261,7 @@ function PassoPrioridades({ onOk }: P) {
       <h3 className="font-display text-[20px] font-semibold">Prioridades de cada dinheiro que entra</h3>
       <p className="text-[14px] text-muted">Primeiro o app sempre cobre as contas próximas. Do que sobrar, quanto vai para o PC e para a reserva? O resto vira dinheiro livre. São sugestões: em cada recebimento você pode mudar.</p>
       <div className="rounded-xl border border-line p-3"><div className="mb-2 font-semibold">Trabalhos e eventos</div><div className="grid grid-cols-2 gap-2">{linha("% para o PC", "tpc")}{linha("% para a reserva", "tres")}</div></div>
-      <div className="rounded-xl border border-line p-3"><div className="mb-2 font-semibold">Lucro retirado do negócio NFC</div><div className="grid grid-cols-2 gap-2">{linha("% para o PC", "npc")}{linha("% para a reserva", "nres")}</div></div>
+      <div className="rounded-xl border border-line p-3"><div className="mb-2 font-semibold">Lucro retirado dos negócios</div><div className="grid grid-cols-2 gap-2">{linha("% para o PC", "npc")}{linha("% para a reserva", "nres")}</div></div>
       {sit.saldos.aDistribuir > 0 && <label className="flex items-center justify-between gap-3 rounded-xl bg-surface-2 px-3.5 py-3"><span className="text-[14px]"><b>Colocar o resto do saldo ({brl(sit.saldos.aDistribuir)}) como dinheiro livre</b><br /><span className="text-muted">Ou deixe a distribuir para decidir depois.</span></span><Interruptor ligado={restoLivre} onChange={setRestoLivre} rotulo="Resto como livre" /></label>}
       <Button onClick={salvar}>Concluir configuração</Button>
     </div>

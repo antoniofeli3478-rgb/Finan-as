@@ -17,7 +17,8 @@ export function validarMovimento(m: Movimento, d: Dados): string[] {
   switch (m.tipo) {
     case "receita":
       if (!conta(m.contaId)) e.push("Escolha a conta onde o dinheiro entra.");
-      if (!d.config.fontes.some((f) => f.id === m.fonteId)) e.push("Escolha de onde veio o dinheiro.");
+      if (!m.negocioId && !d.config.fontes.some((f) => f.id === m.fonteId)) e.push("Escolha de onde veio o dinheiro.");
+      if (m.negocioId && !d.envelopes.some((x) => x.id === m.negocioId && x.tipo === "negocio")) e.push("Escolha o negócio.");
       break;
     case "despesa":
       if (!envelope(m.envelopeId)) e.push("Escolha de qual envelope o dinheiro sai.");

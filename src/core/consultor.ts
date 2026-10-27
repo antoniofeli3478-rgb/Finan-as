@@ -5,7 +5,7 @@ import { addDias, br, diffDias, mesDe } from "./dates";
 import { brl, type Cents } from "./money";
 import type { Dados } from "./types";
 import type { Situacao } from "./situacao";
-import { disponivelParaRetirada, indicadores, ritmoVendas } from "./negocio";
+import { disponivelParaRetirada, indicadores } from "./negocio";
 import { aportesSemanais, relatorioPeriodo } from "./relatorios";
 import { faturaDaCompra, datasDaFatura } from "./cartao";
 
@@ -62,28 +62,24 @@ export function quantoVenderParaPC(sit: Situacao, d: Dados): Resposta {
   const meta = sit.metas.find((m) => m.envelope.tipo === "pc");
   if (!meta || meta.meta == null) return { veredito: "sem-dados", titulo: "Defina o valor do PC", linhas: ["Em Metas, coloque quanto custa o PC que você quer."] };
   if (meta.falta <= 0) return { veredito: "sim", titulo: "A meta do PC já foi atingida", linhas: [] };
-  const prod = d.produtos.filter((p) => p.ativo);
-  if (!prod.length) return { veredito: "sem-dados", titulo: "Nenhuma placa encontrada", linhas: ["Preciso das vendas e do custo das placas. Registre no app Plaquinhas NFC, no mesmo aparelho."] };
-  // A placa de referência: a que tem custo conhecido e o maior preço praticado
-  const comCusto = prod.filter((x) => x.custoReferencia > 0 && x.precoVenda > 0).sort((a, b) => b.precoVenda - a.precoVenda);
-  if (!comCusto.length) return { veredito: "sem-dados", titulo: "Falta o custo das placas", linhas: ["Registre uma entrada de estoque com o valor pago no app Plaquinhas NFC. Sem o custo, eu acharia que cada venda é lucro inteiro."] };
-  const ritmo = ritmoVendas(d, sit.hoje);
-  const p = comCusto[0];
-  const preco = ritmo?.precoMedio || p.precoVenda;
-  const lucroUnit = preco - p.custoReferencia - p.custoAdicional;
-  if (lucroUnit <= 0) return { veredito: "nao", titulo: "Com o preço atual cada placa não dá lucro", linhas: [`Preço ${brl(preco)}, custo ${brl(p.custoReferencia + p.custoAdicional)}.`] };
+  // Margem real dos seus negócios nos últimos 90 dias (vendas lançadas − gastos do negócio)
+  const x = indicadores(d, sit, addDias(sit.hoje, -89), sit.hoje);
+  if (!x.faturamento) return { veredito: "sem-dados", titulo: "Ainda não há vendas lançadas", linhas: ["Lance as vendas e os gastos do negócio em Meus negócios. Com algumas semanas de dados eu calculo quanto você precisa vender."] };
+  if (x.lucroLiquido <= 0) return { veredito: "nao", titulo: "Nos últimos 90 dias o negócio não deu lucro", linhas: [`Vendas de ${brl(x.faturamento)} e gastos de ${brl(x.despesasOperacionais + x.cmv)}. Antes de pensar no PC, vale rever preço e custos.`] };
+  const margem = x.lucroLiquido / x.faturamento;
   const est = d.config.estrategias.find((e) => e.id === d.config.fontes.find((f) => f.id === "nfc")?.estrategiaId);
   const pctPC = est?.regras.find((r) => r.envelopeId === meta.envelope.id && r.modo === "percentual")?.valor ?? 100;
-  const tudo = Math.ceil(meta.falta / lucroUnit);
-  const parte = pctPC > 0 && pctPC < 100 ? Math.ceil(meta.falta / ((lucroUnit * pctPC) / 100)) : tudo;
+  const tudo = Math.ceil(meta.falta / margem);
+  const comRegra = pctPC > 0 && pctPC < 100 ? Math.ceil(meta.falta / (margem * (pctPC / 100))) : tudo;
+  const semanas = 90 / 7;
+  const porSemana = x.faturamento / semanas;
   const linhas = [
-    `Falta ${brl(meta.falta)} para o PC. Cada placa de ${p.nome} deixa cerca de ${brl(lucroUnit)} de lucro (preço ${brl(preco)} − custo ${brl(p.custoReferencia + p.custoAdicional)}).`,
-    `Se todo o lucro fosse para o PC: ${tudo} placas.`,
+    `Falta ${brl(meta.falta)} para o PC. Nos últimos 90 dias, de cada ${brl(10000)} vendidos sobraram ${brl(Math.round(margem * 10000))} de lucro (margem de ${Math.round(margem * 100)}%).`,
+    `Se todo o lucro fosse para o PC: vender mais ${brl(tudo)}.`,
   ];
-  if (parte !== tudo) linhas.push(`Com a sua regra atual (${pctPC}% do lucro retirado vai para o PC): ${parte} placas.`);
-  if (ritmo) linhas.push(`No seu ritmo das últimas semanas (${ritmo.unidadesSemana.toFixed(1).replace(".", ",")} placas/semana), isso leva umas ${Math.ceil(parte / Math.max(0.1, ritmo.unidadesSemana))} semanas.`);
-  linhas.push("Despesas do negócio (transporte, embalagem) reduzem esse lucro. Veja a simulação em Meus negócios.");
-  return { veredito: "info", titulo: `Cerca de ${parte} placas`, linhas };
+  if (comRegra !== tudo) linhas.push(`Com a sua regra atual (${pctPC}% do lucro retirado vai para o PC): vender mais ${brl(comRegra)}.`);
+  if (porSemana > 0) linhas.push(`No seu ritmo (${brl(Math.round(porSemana))} vendidos por semana), isso leva umas ${Math.ceil(comRegra / porSemana)} semanas.`);
+  return { veredito: "info", titulo: `Vender mais ${brl(comRegra)}`, linhas };
 }
 
 export function gastandoMais(d: Dados, sit: Situacao): Resposta {
@@ -110,19 +106,18 @@ export function comprometido(sit: Situacao): Resposta {
   return { veredito: "info", titulo: c > 0 ? `${Math.min(100, Math.max(0, p))}% do seu dinheiro já tem destino` : "Você não tem saldo nas contas", linhas };
 }
 
-export function podeComprarLote(sit: Situacao, d: Dados, produtoId: string, qtd: number, custoUnit?: Cents): Resposta {
-  const p = d.produtos.find((x) => x.id === produtoId);
-  if (!p || !(qtd > 0)) return { veredito: "sem-dados", titulo: "Escolha o produto e a quantidade", linhas: [] };
-  const custo = qtd * (custoUnit ?? p.custoReferencia);
-  if (!custo) return { veredito: "sem-dados", titulo: "Falta o custo do produto", linhas: [`Registre uma entrada de ${p.nome} com o custo no app Plaquinhas NFC.`] };
-  const caixa = sit.saldoEnv(sit.env.negocio);
-  const contas = sit.compromissos.filter((c) => c.escopo === "negocio").reduce((a, c) => a + c.valor, 0);
-  const minimo = sit.env.negocio?.minimo ?? 0;
-  const livreNegocio = caixa - contas;
-  const linhas = [`Lote: ${qtd} × ${brl(custo / qtd)} = ${brl(custo)}.`, `Caixa do negócio: ${brl(caixa)}${contas ? `, com ${brl(contas)} de contas do negócio a pagar` : ""}.`];
-  if (custo <= livreNegocio - minimo) return { veredito: "sim", titulo: "Dá para comprar com o dinheiro do negócio", linhas: [...linhas, `Depois da compra o negócio fica com ${brl(livreNegocio - custo)} (mínimo definido: ${brl(minimo)}).`] };
-  if (custo <= livreNegocio) return { veredito: "cuidado", titulo: "Dá, mas o caixa fica abaixo do mínimo", linhas: [...linhas, `Sobram ${brl(livreNegocio - custo)}, abaixo do capital de giro mínimo de ${brl(minimo)}.`] };
-  return { veredito: "nao", titulo: "O negócio não tem dinheiro para esse lote agora", linhas: [...linhas, `Faltam ${brl(custo - livreNegocio)}. Usar dinheiro pessoal para isso é um aporte no negócio: registre como mudança de envelope para não misturar.`] };
+/** Gasto no negócio (ex.: um lote de placas): o caixa do negócio aguenta? */
+export function podeComprarLote(sit: Situacao, d: Dados, negocioId: string, valor: Cents): Resposta {
+  const e = d.envelopes.find((x) => x.id === negocioId);
+  if (!e || !(valor > 0)) return { veredito: "sem-dados", titulo: "Escolha o negócio e o valor", linhas: [] };
+  const caixa = sit.saldoEnv(e);
+  const contas = sit.compromissos.filter((c) => c.escopo === "negocio" && c.envelopeId === e.id).reduce((a, c) => a + c.valor, 0);
+  const minimo = e.minimo ?? 0;
+  const livre = caixa - contas;
+  const linhas = [`Gasto: ${brl(valor)}.`, `Caixa de ${e.nome}: ${brl(caixa)}${contas ? `, com ${brl(contas)} de contas do negócio a pagar` : ""}.`];
+  if (valor <= livre - minimo) return { veredito: "sim", titulo: "Dá, com o dinheiro do negócio", linhas: [...linhas, `Depois do gasto o negócio fica com ${brl(livre - valor)} (mínimo definido: ${brl(minimo)}).`] };
+  if (valor <= livre) return { veredito: "cuidado", titulo: "Dá, mas o caixa fica abaixo do mínimo", linhas: [...linhas, `Sobram ${brl(livre - valor)}, abaixo do capital de giro mínimo de ${brl(minimo)}.`] };
+  return { veredito: "nao", titulo: "O negócio não tem dinheiro para isso agora", linhas: [...linhas, `Faltam ${brl(valor - livre)}. Se for usar dinheiro pessoal, mova primeiro para o envelope do negócio (Aporte em objetivo), para não misturar.`] };
 }
 
 export function reservarFatura(sit: Situacao, d: Dados): Resposta {
@@ -142,11 +137,10 @@ export function reservarFatura(sit: Situacao, d: Dados): Resposta {
 export function lucroMes(d: Dados, sit: Situacao): Resposta {
   const k = mesDe(sit.hoje);
   const x = indicadores(d, sit, `${k}-01`, `${k}-31`);
-  if (!x.vendas) return { veredito: "sem-dados", titulo: "Nenhuma venda registrada este mês", linhas: [] };
+  if (!x.vendas) return { veredito: "sem-dados", titulo: "Nenhuma venda lançada este mês", linhas: [] };
   return { veredito: x.lucroLiquido > 0 ? "sim" : "nao", titulo: `Lucro líquido de ${brl(x.lucroLiquido)} este mês`, linhas: [
-    `Faturamento ${brl(x.faturamento)} (${x.unidades} placas). Recebido de fato: ${brl(x.recebido)}.`,
-    `Custo das placas vendidas: ${brl(x.cmv)}${x.cmvEstimado ? " (parte estimada pelo custo de referência)" : ""}. Lucro bruto: ${brl(x.lucroBruto)}.`,
-    `Despesas do negócio: ${brl(x.despesasOperacionais)}. Lucro líquido: ${brl(x.lucroLiquido)}${x.margem != null ? ` (margem de ${Math.round(x.margem * 100)}%)` : ""}.`,
+    `Vendas de ${brl(x.faturamento)}. Recebido de fato: ${brl(x.recebido)}.`,
+    `Gastos do negócio: ${brl(x.despesasOperacionais + x.cmv)}. Lucro líquido: ${brl(x.lucroLiquido)}${x.margem != null ? ` (margem de ${Math.round(x.margem * 100)}%)` : ""}.`,
     `Disponível para retirar sem travar o negócio: ${brl(disponivelParaRetirada(d, sit).valor)}.`,
   ] };
 }

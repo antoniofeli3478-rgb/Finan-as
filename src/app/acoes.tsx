@@ -7,7 +7,6 @@ import type { Compromisso, AReceber } from "../core/situacao";
 import type { PagamentoFatura } from "../core/types";
 import { totaisVenda } from "../core/ledger";
 import { useApp } from "./store";
-import { ehDoNfc, URL_APP_NFC } from "../integracoes/nfc";
 import { db } from "../data/db";
 import { ErroValidacao, marcarRecebida, novoMov, pagar, receberVenda, salvarMovimento } from "../data/repo";
 import { Distribuicao, type PedidoDistribuicao } from "../forms/Distribuicao";
@@ -89,15 +88,6 @@ function PagarConta({ c, onFechar }: { c: Compromisso; onFechar: () => void }) {
 }
 
 function Receber({ r, onFechar, onDistribuir }: { r: AReceber; onFechar: () => void; onDistribuir: (p: PedidoDistribuicao) => void }) {
-  if (ehDoNfc(r.movId)) return (
-    <Folha aberta onFechar={onFechar} titulo="Recebimento de venda das placas" rodape={<a href={URL_APP_NFC} className="flex h-11 w-full items-center justify-center rounded-xl bg-accent font-semibold text-accent-ink">Abrir Plaquinhas NFC</a>}>
-      <p className="pb-2 text-[15px] leading-relaxed text-muted">{r.descricao}: faltam {brl(r.valor)}. Registre o recebimento no app Plaquinhas NFC (A receber → Recebi). O Finanças atualiza o caixa do negócio sozinho.</p>
-    </Folha>
-  );
-  return <ReceberAqui r={r} onFechar={onFechar} onDistribuir={onDistribuir} />;
-}
-
-function ReceberAqui({ r, onFechar, onDistribuir }: { r: AReceber; onFechar: () => void; onDistribuir: (p: PedidoDistribuicao) => void }) {
   const { d, sit, hoje } = useApp();
   const { toast } = useUi();
   const mov = d.movimentos.find((m) => m.id === r.movId);
@@ -119,6 +109,8 @@ function ReceberAqui({ r, onFechar, onDistribuir }: { r: AReceber; onFechar: () 
         toast("Recebimento confirmado");
         onFechar();
         const fonteId = mov?.tipo === "receita" ? mov.fonteId : null;
+        // Venda de negócio vai para o caixa do negócio: não se distribui
+        if (mov?.tipo === "receita" && mov.negocioId) return;
         onDistribuir({ valor: r.valor, receitaId: r.movId, fonteId, titulo: `Distribuir ${brl(r.valor)}` });
       }
     } catch (e) { setErro(e instanceof ErroValidacao ? e.problemas.join(" ") : (e as Error).message); }
@@ -132,6 +124,7 @@ function ReceberAqui({ r, onFechar, onDistribuir }: { r: AReceber; onFechar: () 
           <Campo rotulo="Entrou em"><Selecao value={contaId} onChange={setContaId} opcoes={d.contas.filter((x) => !x.arquivada).map((x) => ({ valor: x.id, rotulo: x.nome }))} /></Campo>
           <Campo rotulo="Data"><Data value={data} onChange={setData} /></Campo>
         </div>
+        {mov?.tipo === "receita" && mov.negocioId && <Aviso tom="info">Venda do negócio: o dinheiro entra no caixa de {d.envelopes.find((e) => e.id === mov.negocioId)?.nome ?? "o negócio"}.</Aviso>}
         {r.origem === "venda" && <Aviso tom="info">Dinheiro de venda vai para o envelope do negócio ({brl(sit.saldoEnv(sit.env.negocio))} hoje). Para usar com você, faça uma retirada.</Aviso>}
         {erro && <Aviso tom="bad">{erro}</Aviso>}
       </div>

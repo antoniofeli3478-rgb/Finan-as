@@ -167,7 +167,8 @@ describe("modo demonstração", () => {
     const sit = calcularSituacao(d, HOJE);
     expect(sit.saldos.alocado + sit.saldos.aDistribuir).toBe(sit.saldos.caixa);
     expect(sit.saldos.aDistribuir).toBe(20000); // o recebimento de hoje ainda não foi distribuído
-    expect(sit.estoque.porProduto["p-google"].qtd).toBe(30 - 11);
+    expect(sit.saldoEnv(sit.env.negocio)).toBe(40000 - 35010 - 2500 + 79490);
+    expect(sit.capitalNegocio.aReceber).toBe(15000);
     expect(sit.compromissos.some((c) => c.origem === "fatura")).toBe(true);
   });
 });
