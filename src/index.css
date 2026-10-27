@@ -1,0 +1,91 @@
+@import "tailwindcss";
+@import "@fontsource-variable/onest";
+@import "@fontsource-variable/bricolage-grotesque";
+
+/* Paleta: grafite azulado com ouro velho como destaque (ações e progresso).
+   Verde, laranja e vermelho são só para estado (bom, atenção, problema). */
+:root, [data-theme="escuro"] {
+  --bg: #0e1116;
+  --surface: #161a21;
+  --surface-2: #1d222b;
+  --surface-3: #252b36;
+  --line: #2a313c;
+  --ink: #eceff4;
+  --muted: #949dac;
+  --faint: #6b7483;
+  --accent: #e3b453;
+  --accent-ink: #1b1505;
+  --accent-soft: rgba(227, 180, 83, 0.14);
+  --good: #4fc28b;
+  --good-soft: rgba(79, 194, 139, 0.14);
+  --warn: #f0a24a;
+  --warn-soft: rgba(240, 162, 74, 0.15);
+  --bad: #f07169;
+  --bad-soft: rgba(240, 113, 105, 0.15);
+  --shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 12px 32px -18px rgba(0, 0, 0, 0.8);
+  color-scheme: dark;
+}
+[data-theme="claro"] {
+  --bg: #f2f3f6;
+  --surface: #ffffff;
+  --surface-2: #f0f2f5;
+  --surface-3: #e5e8ee;
+  --line: #dde1e8;
+  --ink: #141820;
+  --muted: #5b6474;
+  --faint: #8a93a2;
+  --accent: #946300;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(148, 99, 0, 0.1);
+  --good: #11804e;
+  --good-soft: rgba(17, 128, 78, 0.1);
+  --warn: #a15800;
+  --warn-soft: rgba(161, 88, 0, 0.1);
+  --bad: #c0352e;
+  --bad-soft: rgba(192, 53, 46, 0.1);
+  --shadow: 0 1px 2px rgba(20, 24, 32, 0.05), 0 10px 28px -18px rgba(20, 24, 32, 0.25);
+  color-scheme: light;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-good: var(--good);
+  --color-good-soft: var(--good-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-bad: var(--bad);
+  --color-bad-soft: var(--bad-soft);
+  --font-sans: "Onest Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Bricolage Grotesque Variable", "Onest Variable", ui-sans-serif, system-ui, sans-serif;
+  --shadow-card: var(--shadow);
+}
+
+/* Dentro de @layer base: fora de uma camada, estas regras venceriam as classes do Tailwind */
+@layer base {
+  html, body { background: var(--bg); color: var(--ink); }
+  body { margin: 0; font-family: var(--font-sans); -webkit-font-smoothing: antialiased; -webkit-tap-highlight-color: transparent; }
+  .num { font-variant-numeric: tabular-nums; }
+  h1, h2, h3 { text-wrap: balance; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  input, select, textarea, button { font: inherit; color: inherit; }
+  input[type="date"]::-webkit-calendar-picker-indicator { filter: var(--date-filter, none); }
+  [data-theme="escuro"] { --date-filter: invert(0.8); }
+  .scroll-x { overflow-x: auto; scrollbar-width: none; }
+  .scroll-x::-webkit-scrollbar { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
+@media print {
+  .no-print { display: none !important; }
+  body, html { background: #fff !important; color: #000 !important; }
+  .print-area { padding: 0 !important; }
+}

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="escuro">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="description" content="Seu dinheiro organizado em envelopes, com o negócio NFC, cartão e metas. Tudo fica no seu aparelho." />
+    <meta name="theme-color" content="#0f1217" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Finanças" />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+    <title>Finanças</title>
+    <script>
+      // aplica o tema antes de desenhar a tela, para não piscar
+      try {
+        var t = localStorage.getItem("gf:tema") || "escuro";
+        if (t === "sistema") t = matchMedia("(prefers-color-scheme: light)").matches ? "claro" : "escuro";
+        document.documentElement.dataset.theme = t;
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
